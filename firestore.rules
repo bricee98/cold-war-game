@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isGameMember(gameId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/games/$(gameId)/members/$(request.auth.uid));
+    }
+
+    function role(gameId) {
+      return get(/databases/$(database)/documents/games/$(gameId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isGM(gameId) {
+      return role(gameId) == "gm";
+    }
+
+    function activeTurn(gameId) {
+      return get(/databases/$(database)/documents/games/$(gameId)).data.activeTurnId;
+    }
+
+    match /games/{gameId} {
+      allow read: if isGameMember(gameId);
+      allow update: if isGM(gameId);
+
+      match /members/{memberId} {
+        allow read: if isGameMember(gameId);
+        allow write: if isGM(gameId);
+      }
+
+      match /turns/{turnId} {
+        allow read: if isGameMember(gameId);
+        allow create, update: if isGM(gameId);
+      }
+
+      match /threads/{threadId} {
+        allow read: if isGameMember(gameId);
+        allow create: if isGM(gameId);
+        allow update, delete: if false;
+      }
+
+      match /messages/{messageId} {
+        allow read: if isGameMember(gameId);
+        allow create: if isGameMember(gameId)
+          && request.resource.data.turnId == activeTurn(gameId)
+          && request.auth.uid in request.resource.data.participantIds;
+        allow update: if isGameMember(gameId)
+          && resource.data.turnId == activeTurn(gameId)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(["reactions"])
+          && request.auth.uid in resource.data.participantIds;
+        allow delete: if false;
+      }
+
+      match /aiConversations/{conversationId} {
+        allow create: if signedIn() && request.auth.uid == request.resource.data.userId;
+        allow read, update, delete: if signedIn() && request.auth.uid == resource.data.userId;
+      }
+    }
+  }
+}

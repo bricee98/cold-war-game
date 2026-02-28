@@ -1,18 +1,21 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { formatInWorldDate, formatIsoDateTime } from "@/lib/format";
-import { getAIResponses, useCurrentTurn, useGameStore } from "@/lib/gameStore";
+import { getAIResponses, useGameStore } from "@/lib/gameStore";
 import { Message, Thread, Turn } from "@/types/game";
 
 function TurnList({
   turns,
   selectedTurnId,
-  onSelect
+  onSelect,
+  showGmDeskLink
 }: {
   turns: Turn[];
   selectedTurnId: string;
   onSelect: (turnId: string) => void;
+  showGmDeskLink: boolean;
 }) {
   return (
     <aside className="panel turnList">
@@ -33,85 +36,187 @@ function TurnList({
             </button>
           ))}
       </div>
+      {showGmDeskLink ? (
+        <Link href="/gm" className="navButton">
+          Open Newspaper Desk
+        </Link>
+      ) : null}
     </aside>
   );
 }
 
-function ThreadList({
-  threads,
-  selectedThreadId,
-  onSelect
+function ChannelControl({
+  channels,
+  selectedChannelId,
+  onSelectChannel,
+  isReadOnlyTurn
 }: {
-  threads: Thread[];
-  selectedThreadId: string | null;
-  onSelect: (threadId: string) => void;
+  channels: Thread[];
+  selectedChannelId: string | null;
+  onSelectChannel: (channelId: string) => void;
+  isReadOnlyTurn: boolean;
 }) {
   return (
-    <section className="panel">
-      <h3>Private Channels</h3>
-      <div className="threadItems">
-        {threads.map((thread) => (
-          <button
-            key={thread.id}
-            type="button"
-            className={thread.id === selectedThreadId ? "threadItem active" : "threadItem"}
-            onClick={() => onSelect(thread.id)}
+    <section className="panel controlPanel">
+      <div className="controlStrip single">
+        <label>
+          Private Channel
+          <select
+            value={selectedChannelId ?? ""}
+            onChange={(event) => onSelectChannel(event.target.value)}
+            disabled={!channels.length}
           >
-            <span>{thread.title}</span>
-            <small>{thread.kind === "gm_player" ? "GM" : "Player"}</small>
-          </button>
-        ))}
-        {!threads.length ? <p className="muted">No threads on this turn.</p> : null}
+            {channels.map((channel) => (
+              <option key={channel.id} value={channel.id}>
+                {channel.title}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
+      {isReadOnlyTurn ? <p className="muted">Past turns are read-only.</p> : null}
     </section>
   );
 }
 
-function MessageList({
+function MessageCard({
+  message,
+  replies,
+  isReadOnly,
+  currentUserId,
+  onReact,
+  onReply
+}: {
+  message: Message;
+  replies: Message[];
+  isReadOnly: boolean;
+  currentUserId: string;
+  onReact: (messageId: string, emoji: string) => void;
+  onReply: (parentMessageId: string, body: string) => void;
+}) {
+  const [showThread, setShowThread] = useState(replies.length > 0);
+  const [replyDraft, setReplyDraft] = useState("");
+
+  const submitReply = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = replyDraft.trim();
+    if (!trimmed || isReadOnly) {
+      return;
+    }
+    onReply(message.id, trimmed);
+    setReplyDraft("");
+    setShowThread(true);
+  };
+
+  return (
+    <article key={message.id} className={message.authorId === currentUserId ? "message mine" : "message"}>
+      <p>{message.body}</p>
+      <footer>
+        <small>{formatIsoDateTime(message.createdAt)}</small>
+        <div className="messageActions">
+          <button type="button" className="threadToggle" onClick={() => setShowThread((prev) => !prev)}>
+            {replies.length ? `Thread (${replies.length})` : "Start Thread"}
+          </button>
+          <div className="reactions">
+            {message.reactions.map((reaction) => (
+              <button
+                key={`${reaction.emoji}-${reaction.userId}`}
+                type="button"
+                className={reaction.userId === currentUserId ? "react active" : "react"}
+                onClick={() => !isReadOnly && onReact(message.id, reaction.emoji)}
+                disabled={isReadOnly}
+              >
+                {reaction.emoji}
+              </button>
+            ))}
+            {!isReadOnly ? (
+              <>
+                <button type="button" className="react" onClick={() => onReact(message.id, "👍")}>
+                  👍
+                </button>
+                <button type="button" className="react" onClick={() => onReact(message.id, "👀")}>
+                  👀
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </footer>
+
+      {showThread ? (
+        <section className="threadReplies">
+          {replies.length ? (
+            <div className="replyList">
+              {replies.map((reply) => (
+                <div key={reply.id} className={reply.authorId === currentUserId ? "replyMessage mine" : "replyMessage"}>
+                  <p>{reply.body}</p>
+                  <small>{formatIsoDateTime(reply.createdAt)}</small>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No replies yet.</p>
+          )}
+
+          <form className="compose replyCompose" onSubmit={submitReply}>
+            <input
+              value={replyDraft}
+              onChange={(event) => setReplyDraft(event.target.value)}
+              placeholder={isReadOnly ? "Past turn is read-only" : "Reply in thread"}
+              disabled={isReadOnly}
+            />
+            <button type="submit" disabled={isReadOnly || !replyDraft.trim()}>
+              Reply
+            </button>
+          </form>
+        </section>
+      ) : null}
+    </article>
+  );
+}
+
+function MessageFeed({
   messages,
   isReadOnly,
+  currentUserId,
   onReact,
-  currentUserId
+  onReply
 }: {
   messages: Message[];
   isReadOnly: boolean;
-  onReact: (messageId: string, emoji: string) => void;
   currentUserId: string;
+  onReact: (messageId: string, emoji: string) => void;
+  onReply: (parentMessageId: string, body: string) => void;
 }) {
+  const topLevel = useMemo(() => messages.filter((message) => !message.parentMessageId), [messages]);
+
+  const repliesByParent = useMemo(() => {
+    const map = new Map<string, Message[]>();
+    for (const message of messages) {
+      if (!message.parentMessageId) {
+        continue;
+      }
+      const current = map.get(message.parentMessageId) ?? [];
+      current.push(message);
+      map.set(message.parentMessageId, current);
+    }
+    return map;
+  }, [messages]);
+
   return (
     <div className="messages">
-      {messages.map((message) => (
-        <article key={message.id} className={message.authorId === currentUserId ? "message mine" : "message"}>
-          <p>{message.body}</p>
-          <footer>
-            <small>{formatIsoDateTime(message.createdAt)}</small>
-            <div className="reactions">
-              {message.reactions.map((reaction) => (
-                <button
-                  key={`${reaction.emoji}-${reaction.userId}`}
-                  type="button"
-                  className={reaction.userId === currentUserId ? "react active" : "react"}
-                  onClick={() => !isReadOnly && onReact(message.id, reaction.emoji)}
-                  disabled={isReadOnly}
-                >
-                  {reaction.emoji}
-                </button>
-              ))}
-              {!isReadOnly ? (
-                <>
-                  <button type="button" className="react" onClick={() => onReact(message.id, "👍")}>
-                    👍
-                  </button>
-                  <button type="button" className="react" onClick={() => onReact(message.id, "👀")}>
-                    👀
-                  </button>
-                </>
-              ) : null}
-            </div>
-          </footer>
-        </article>
+      {topLevel.map((message) => (
+        <MessageCard
+          key={message.id}
+          message={message}
+          replies={repliesByParent.get(message.id) ?? []}
+          isReadOnly={isReadOnly}
+          currentUserId={currentUserId}
+          onReact={onReact}
+          onReply={onReply}
+        />
       ))}
-      {!messages.length ? <p className="muted">No messages yet.</p> : null}
+      {!topLevel.length ? <p className="muted">No messages yet in this channel.</p> : null}
     </div>
   );
 }
@@ -134,8 +239,8 @@ function AIPrivatePanel({ userId }: { userId: string }) {
   };
 
   return (
-    <section className="panel aiPanel">
-      <h3>Private AI</h3>
+    <details className="panel aiPanel">
+      <summary>Private AI Assistant</summary>
       <p className="muted">Only visible to this player. GM cannot view this panel.</p>
       <div className="aiMessages">
         {aiMessages.map((msg) => (
@@ -153,51 +258,7 @@ function AIPrivatePanel({ userId }: { userId: string }) {
         />
         <button type="submit">Send</button>
       </form>
-    </section>
-  );
-}
-
-function GmTurnPublisher() {
-  const { publishTurn } = useGameStore();
-  const currentTurn = useCurrentTurn();
-  const [inWorldDate, setInWorldDate] = useState(currentTurn?.inWorldDate ?? "");
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!inWorldDate || !title.trim() || !body.trim()) {
-      return;
-    }
-    publishTurn({ inWorldDate, title: title.trim(), body: body.trim() });
-    setTitle("");
-    setBody("");
-  };
-
-  return (
-    <section className="panel">
-      <h3>Publish Newspaper / Start Next Turn</h3>
-      <form onSubmit={onSubmit} className="stack">
-        <label>
-          In-world date
-          <input type="date" value={inWorldDate} onChange={(event) => setInWorldDate(event.target.value)} />
-        </label>
-        <label>
-          Headline
-          <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Global Bulletin title" />
-        </label>
-        <label>
-          Body
-          <textarea
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-            rows={4}
-            placeholder="What all players receive for this turn"
-          />
-        </label>
-        <button type="submit">Publish & Advance Turn</button>
-      </form>
-    </section>
+    </details>
   );
 }
 
@@ -215,41 +276,50 @@ export function GameApp() {
 
   const [selectedTurnId, setSelectedTurnId] = useState(state.game.activeTurnId);
   const turn = getTurnById(selectedTurnId);
+
   useEffect(() => {
     setSelectedTurnId(state.game.activeTurnId);
   }, [state.game.activeTurnId]);
 
-  const threads = useMemo(() => {
+  const channels = useMemo(() => {
     if (!turn) {
       return [];
     }
     return getThreadsForUser(currentUser.id, turn.id).sort((a, b) => a.title.localeCompare(b.title));
   }, [currentUser.id, getThreadsForUser, turn]);
 
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+
   useEffect(() => {
-    setSelectedThreadId(null);
+    setSelectedChannelId(null);
   }, [selectedTurnId, currentUser.id]);
 
-  const activeThreadId = useMemo(() => {
-    if (selectedThreadId && threads.some((thread) => thread.id === selectedThreadId)) {
-      return selectedThreadId;
+  const activeChannelId = useMemo(() => {
+    if (selectedChannelId && channels.some((thread) => thread.id === selectedChannelId)) {
+      return selectedChannelId;
     }
-    return threads[0]?.id ?? null;
-  }, [selectedThreadId, threads]);
+    return channels[0]?.id ?? null;
+  }, [selectedChannelId, channels]);
 
-  const messages = activeThreadId ? getMessagesForThread(activeThreadId) : [];
+  const messages = activeChannelId ? getMessagesForThread(activeChannelId) : [];
   const isReadOnlyTurn = turn?.status !== "active";
 
   const [draft, setDraft] = useState("");
 
-  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
+  const submitTopLevelMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!activeThreadId) {
+    if (!activeChannelId) {
       return;
     }
-    addMessage(activeThreadId, currentUser.id, draft);
+    addMessage(activeChannelId, currentUser.id, draft);
     setDraft("");
+  };
+
+  const replyInThread = (parentMessageId: string, body: string) => {
+    if (!activeChannelId) {
+      return;
+    }
+    addMessage(activeChannelId, currentUser.id, body, parentMessageId);
   };
 
   return (
@@ -257,7 +327,7 @@ export function GameApp() {
       <header className="topBar panel">
         <div>
           <h1>{state.game.title}</h1>
-          <p className="muted">Private turn-based channels with GM newspaper turn control.</p>
+          <p className="muted">Threads are optional under each message, with channel-first conversation flow.</p>
         </div>
         <label>
           View as
@@ -272,54 +342,60 @@ export function GameApp() {
       </header>
 
       <section className="contentGrid">
-        <TurnList turns={state.turns} selectedTurnId={selectedTurnId} onSelect={setSelectedTurnId} />
+        <TurnList
+          turns={state.turns}
+          selectedTurnId={selectedTurnId}
+          onSelect={setSelectedTurnId}
+          showGmDeskLink={currentUser.role === "gm"}
+        />
 
-        <section className="panel conversationPanel">
-          {turn ? (
-            <>
-              <div className="turnHeader">
-                <h2>
-                  Turn {turn.number}: {turn.newspaperTitle}
-                </h2>
-                <p>
-                  <strong>Date:</strong> {formatInWorldDate(turn.inWorldDate)}
-                </p>
-                <p>{turn.newspaperBody}</p>
-                <small>Published {formatIsoDateTime(turn.publishedAt)}</small>
-              </div>
+        <section className="mainColumn">
+          <section className="panel conversationPanel">
+            {turn ? (
+              <>
+                <div className="turnHeader">
+                  <h2>
+                    Turn {turn.number}: {turn.newspaperTitle}
+                  </h2>
+                  <p>
+                    <strong>Date:</strong> {formatInWorldDate(turn.inWorldDate)}
+                  </p>
+                  <p>{turn.newspaperBody}</p>
+                  <small>Published {formatIsoDateTime(turn.publishedAt)}</small>
+                </div>
 
-              <ThreadList
-                threads={threads}
-                selectedThreadId={activeThreadId}
-                onSelect={(threadId) => setSelectedThreadId(threadId)}
-              />
-
-              <MessageList
-                messages={messages}
-                isReadOnly={isReadOnlyTurn}
-                onReact={(messageId, emoji) => addReaction(messageId, currentUser.id, emoji)}
-                currentUserId={currentUser.id}
-              />
-
-              <form onSubmit={submitMessage} className="compose">
-                <input
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder={isReadOnlyTurn ? "Past turn is read-only" : "Type a message"}
-                  disabled={isReadOnlyTurn || !activeThreadId}
+                <ChannelControl
+                  channels={channels}
+                  selectedChannelId={activeChannelId}
+                  onSelectChannel={setSelectedChannelId}
+                  isReadOnlyTurn={isReadOnlyTurn}
                 />
-                <button type="submit" disabled={isReadOnlyTurn || !activeThreadId}>
-                  Send
-                </button>
-              </form>
-            </>
-          ) : (
-            <p>No turn selected.</p>
-          )}
-        </section>
 
-        <section className="rightRail">
-          {currentUser.role === "gm" ? <GmTurnPublisher /> : null}
+                <MessageFeed
+                  messages={messages}
+                  isReadOnly={isReadOnlyTurn}
+                  onReact={(messageId, emoji) => addReaction(messageId, currentUser.id, emoji)}
+                  onReply={replyInThread}
+                  currentUserId={currentUser.id}
+                />
+
+                <form onSubmit={submitTopLevelMessage} className="compose">
+                  <input
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder={isReadOnlyTurn ? "Past turn is read-only" : "Type a message"}
+                    disabled={isReadOnlyTurn || !activeChannelId}
+                  />
+                  <button type="submit" disabled={isReadOnlyTurn || !activeChannelId || !draft.trim()}>
+                    Send
+                  </button>
+                </form>
+              </>
+            ) : (
+              <p>No turn selected.</p>
+            )}
+          </section>
+
           {currentUser.role === "player" ? <AIPrivatePanel userId={currentUser.id} /> : null}
         </section>
       </section>

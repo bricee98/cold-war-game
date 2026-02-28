@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, ReactNode, useContext, useMemo, useState } from "react";
+import { createContext, ReactNode, useContext, useState } from "react";
 import { initialState } from "@/lib/mockData";
-import { AIMessage, GameState, Message, Thread, Turn, User } from "@/types/game";
+import { GameState, Message, Thread, Turn, User } from "@/types/game";
 
 interface PublishTurnInput {
   inWorldDate: string;
@@ -14,7 +14,7 @@ interface StoreContextValue {
   state: GameState;
   currentUser: User;
   setCurrentUserId: (id: string) => void;
-  addMessage: (threadId: string, authorId: string, body: string) => void;
+  addMessage: (threadId: string, authorId: string, body: string, parentMessageId?: string) => void;
   addReaction: (messageId: string, userId: string, emoji: string) => void;
   addAIMessage: (userId: string, role: "user" | "assistant", body: string) => void;
   publishTurn: (input: PublishTurnInput) => void;
@@ -41,16 +41,24 @@ export function GameStoreProvider({ children }: { children: ReactNode }) {
 
   const currentUser = state.users.find((u) => u.id === currentUserId) ?? state.users[0];
 
-  const addMessage = (threadId: string, authorId: string, body: string) => {
+  const addMessage = (threadId: string, authorId: string, body: string, parentMessageId?: string) => {
     const trimmed = body.trim();
     if (!trimmed) {
       return;
     }
 
-    const thread = state.threads.find((t) => t.id === threadId);
-    const activeTurn = state.turns.find((t) => t.status === "active");
-    if (!thread || !activeTurn || thread.turnId !== activeTurn.id) {
+    const thread = state.threads.find((entry) => entry.id === threadId);
+    const activeTurn = state.turns.find((turn) => turn.status === "active");
+
+    if (!thread || !activeTurn || thread.turnId !== activeTurn.id || !thread.participantIds.includes(authorId)) {
       return;
+    }
+
+    if (parentMessageId) {
+      const parent = state.messages.find((msg) => msg.id === parentMessageId);
+      if (!parent || parent.threadId !== threadId) {
+        return;
+      }
     }
 
     setState((prev) => ({
@@ -60,6 +68,7 @@ export function GameStoreProvider({ children }: { children: ReactNode }) {
         {
           id: id("m"),
           threadId,
+          parentMessageId,
           authorId,
           body: trimmed,
           createdAt: new Date().toISOString(),
@@ -70,6 +79,17 @@ export function GameStoreProvider({ children }: { children: ReactNode }) {
   };
 
   const addReaction = (messageId: string, userId: string, emoji: string) => {
+    const message = state.messages.find((m) => m.id === messageId);
+    if (!message) {
+      return;
+    }
+
+    const thread = state.threads.find((entry) => entry.id === message.threadId);
+    const activeTurn = state.turns.find((turn) => turn.status === "active");
+    if (!thread || !activeTurn || thread.turnId !== activeTurn.id || !thread.participantIds.includes(userId)) {
+      return;
+    }
+
     setState((prev) => ({
       ...prev,
       messages: prev.messages.map((m) => {
@@ -185,27 +205,22 @@ export function GameStoreProvider({ children }: { children: ReactNode }) {
     state.threads.filter((thread) => thread.turnId === turnId && thread.participantIds.includes(userId));
 
   const getMessagesForThread = (threadId: string) =>
-    state.messages
-      .filter((message) => message.threadId === threadId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    state.messages.filter((message) => message.threadId === threadId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const getTurnById = (turnId: string) => state.turns.find((turn) => turn.id === turnId);
 
-  const value = useMemo<StoreContextValue>(
-    () => ({
-      state,
-      currentUser,
-      setCurrentUserId,
-      addMessage,
-      addReaction,
-      addAIMessage,
-      publishTurn,
-      getThreadsForUser,
-      getMessagesForThread,
-      getTurnById
-    }),
-    [state, currentUser]
-  );
+  const value: StoreContextValue = {
+    state,
+    currentUser,
+    setCurrentUserId,
+    addMessage,
+    addReaction,
+    addAIMessage,
+    publishTurn,
+    getThreadsForUser,
+    getMessagesForThread,
+    getTurnById
+  };
 
   return <GameStoreContext.Provider value={value}>{children}</GameStoreContext.Provider>;
 }

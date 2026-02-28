@@ -32,7 +32,9 @@ npm run dev:poll
 ## Current behavior
 
 - Role switcher lets you view as GM or any player.
-- GM can publish newspaper updates that auto-advance the turn.
+- GM can navigate to `/gm` to publish newspaper updates that auto-advance the turn.
+- Channel selection is a compact control above the message feed.
+- Threads are optional and live under each message (Slack-style replies).
 - Messaging/reactions are allowed only on the active turn.
 - Past turns are read-only.
 - Player AI panel is private by role context.

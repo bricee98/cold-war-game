@@ -85,6 +85,15 @@ export const initialState: GameState = {
     },
     {
       id: "m-2",
+      threadId: "t-gm-u1-2",
+      parentMessageId: "m-1",
+      authorId: "u-1",
+      body: "Can I divert logistics inspection teams without alerting local command?",
+      createdAt: new Date(now.getTime() + 120_000).toISOString(),
+      reactions: []
+    },
+    {
+      id: "m-3",
       threadId: "t-u1-u2-2",
       authorId: "u-2",
       body: "I can move two brigades if you secure fuel.",

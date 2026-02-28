@@ -40,6 +40,11 @@ select {
   gap: 1rem;
 }
 
+.simplePage {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
 .topBar {
   display: flex;
   justify-content: space-between;
@@ -48,7 +53,7 @@ select {
 
 .contentGrid {
   display: grid;
-  grid-template-columns: 240px 1fr 360px;
+  grid-template-columns: 240px 1fr;
   gap: 1rem;
   min-height: 0;
 }
@@ -76,11 +81,17 @@ select {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fbf8f2;
+  color: var(--ink);
   text-align: left;
   padding: 0.55rem;
   display: grid;
   gap: 0.15rem;
   cursor: pointer;
+}
+
+.turnItem small,
+.threadItem small {
+  color: var(--muted);
 }
 
 .turnItem.active,
@@ -91,6 +102,10 @@ select {
 
 .turnList {
   align-content: start;
+}
+
+.turnList .navButton {
+  margin-top: 0.4rem;
 }
 
 .muted {
@@ -107,6 +122,41 @@ select {
 .conversationPanel {
   grid-template-rows: auto auto 1fr auto;
   min-height: 72vh;
+}
+
+.controlPanel {
+  padding: 0.7rem;
+}
+
+.controlStrip {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(240px, 1.5fr);
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.controlStrip.single {
+  grid-template-columns: minmax(240px, 420px);
+}
+
+.controlStrip label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.inlineForm {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
+.inlineForm label {
+  grid-column: 1 / 2;
+}
+
+.inlineForm button {
+  grid-column: 2 / 3;
 }
 
 .message {
@@ -130,6 +180,21 @@ select {
   gap: 0.5rem;
 }
 
+.messageActions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.threadToggle {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  cursor: pointer;
+}
+
 .reactions {
   display: flex;
   gap: 0.3rem;
@@ -147,10 +212,50 @@ select {
   border-color: var(--accent-2);
 }
 
+.threadReplies {
+  border-top: 1px dashed var(--border);
+  margin-top: 0.2rem;
+  padding-top: 0.6rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.replyList {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.replyMessage {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.45rem 0.55rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.replyMessage.mine {
+  border-color: var(--accent-2);
+  background: #eef6fb;
+}
+
+.replyCompose {
+  padding-top: 0.2rem;
+}
+
 .compose,
 .stack {
   display: grid;
   gap: 0.5rem;
+}
+
+.stack label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.compact {
+  gap: 0.3rem;
 }
 
 .compose {
@@ -166,27 +271,71 @@ button {
   padding: 0.5rem 0.6rem;
 }
 
-button {
+.compose button,
+.stack button {
   background: var(--accent);
   color: white;
   border-color: var(--accent);
   cursor: pointer;
 }
 
-button:disabled {
+.compose button:disabled,
+.stack button:disabled {
   background: #8e908f;
   border-color: #8e908f;
   cursor: not-allowed;
 }
 
-.rightRail {
+.mainColumn {
   display: grid;
   align-content: start;
   gap: 1rem;
 }
 
+.twoCol {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 1rem;
+}
+
+.widePanel {
+  width: 100%;
+}
+
+.turnCardStatic {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fbf8f2;
+  color: var(--ink);
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.turnCardStatic small {
+  color: var(--muted);
+}
+
+.navButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  background: var(--accent-2);
+  color: #fff;
+  border: 1px solid var(--accent-2);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-weight: 600;
+}
+
 .aiPanel .compose {
   grid-template-columns: 1fr auto;
+}
+
+.aiPanel summary {
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .aiMessage {
@@ -205,8 +354,15 @@ button:disabled {
     grid-template-columns: 220px 1fr;
   }
 
-  .rightRail {
-    grid-column: 1 / -1;
+  .twoCol {
+    grid-template-columns: 1fr;
+  }
+
+  .controlStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .inlineForm {
     grid-template-columns: 1fr;
   }
 }

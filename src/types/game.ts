@@ -43,6 +43,7 @@ export interface Reaction {
 export interface Message {
   id: string;
   threadId: string;
+  parentMessageId?: string;
   authorId: string;
   body: string;
   createdAt: string;

@@ -17,8 +17,6 @@ export interface Turn {
   gameId: string;
   number: number;
   inWorldDate: string;
-  newspaperTitle: string;
-  newspaperBody: string;
   publishedAt: string;
   status: "active" | "archived";
 }

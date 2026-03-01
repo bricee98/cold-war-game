@@ -16,3 +16,15 @@ export function formatInWorldDate(value: string): string {
     day: "numeric"
   }).format(parsed);
 }
+
+export function formatShortInWorldDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric"
+  }).format(parsed);
+}

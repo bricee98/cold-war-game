@@ -1,16 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { formatInWorldDate, formatIsoDateTime } from "@/lib/format";
+import { formatInWorldDate } from "@/lib/format";
 import { useCurrentTurn, useGameStore } from "@/lib/gameStore";
 
 export function GmNewspaperDesk() {
+  const router = useRouter();
   const { state, currentUser, publishTurn } = useGameStore();
   const currentTurn = useCurrentTurn();
 
   const [inWorldDate, setInWorldDate] = useState(currentTurn?.inWorldDate ?? "");
-  const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
 
   useEffect(() => {
@@ -19,6 +20,12 @@ export function GmNewspaperDesk() {
     }
   }, [currentTurn]);
 
+  useEffect(() => {
+    if (currentUser.role !== "gm") {
+      router.replace("/");
+    }
+  }, [currentUser.role, router]);
+
   const recentTurns = useMemo(
     () => [...state.turns].sort((a, b) => b.number - a.number).slice(0, 4),
     [state.turns]
@@ -26,32 +33,20 @@ export function GmNewspaperDesk() {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!inWorldDate || !title.trim() || !body.trim()) {
+    if (!inWorldDate || !body.trim()) {
       return;
     }
 
     publishTurn({
       inWorldDate,
-      title: title.trim(),
       body: body.trim()
     });
 
-    setTitle("");
     setBody("");
   };
 
   if (currentUser.role !== "gm") {
-    return (
-      <main className="appShell simplePage">
-        <section className="panel widePanel">
-          <h1>GM Desk</h1>
-          <p className="muted">Only the GM can publish newspapers and advance turns.</p>
-          <Link href="/" className="navButton">
-            Back to Game
-          </Link>
-        </section>
-      </main>
-    );
+    return null;
   }
 
   return (
@@ -75,20 +70,12 @@ export function GmNewspaperDesk() {
               <input type="date" value={inWorldDate} onChange={(event) => setInWorldDate(event.target.value)} />
             </label>
             <label>
-              Headline
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Global Bulletin title"
-              />
-            </label>
-            <label>
               Body
               <textarea
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
                 rows={8}
-                placeholder="What every player receives for this turn"
+                placeholder="What every player receives for this turn (Markdown supported)"
               />
             </label>
             <button type="submit">Publish & Advance Turn</button>
@@ -100,15 +87,13 @@ export function GmNewspaperDesk() {
           {currentTurn ? (
             <div className="stack compact">
               <p>
-                <strong>Turn {currentTurn.number}</strong>
+                <strong>
+                  Turn {currentTurn.number} - {formatInWorldDate(currentTurn.inWorldDate)}
+                </strong>
               </p>
-              <p>
-                <strong>Date:</strong> {formatInWorldDate(currentTurn.inWorldDate)}
-              </p>
-              <p>
-                <strong>Headline:</strong> {currentTurn.newspaperTitle}
-              </p>
-              <p className="muted">Published {formatIsoDateTime(currentTurn.publishedAt)}</p>
+              <div className="newspaperBodyRow">
+                <p className="muted">Newspaper text is inserted as the first message in each new GM ↔ player channel.</p>
+              </div>
             </div>
           ) : (
             <p className="muted">No active turn.</p>

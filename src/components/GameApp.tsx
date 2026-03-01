@@ -2,9 +2,34 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { formatInWorldDate, formatIsoDateTime } from "@/lib/format";
+import { CopyButton } from "@/components/CopyButton";
+import { MarkdownText } from "@/components/MarkdownText";
+import { useAuth } from "@/lib/auth";
+import { formatInWorldDate, formatIsoDateTime, formatShortInWorldDate } from "@/lib/format";
 import { getAIResponses, useGameStore } from "@/lib/gameStore";
-import { Message, Thread, Turn } from "@/types/game";
+import { Message, Role, Thread, Turn } from "@/types/game";
+
+const REACTION_OPTIONS = [
+  { emoji: "👍", label: "Thumbs Up" },
+  { emoji: "👎", label: "Thumbs Down" },
+  { emoji: "✅", label: "Checkmark" },
+  { emoji: "👀", label: "Eyes" },
+  { emoji: "🇺🇸", label: "USA" },
+  { emoji: "🇨🇳", label: "China" },
+  { emoji: "☭", label: "USSR" },
+  { emoji: "🇫🇮", label: "Finland" }
+] as const;
+
+function ReactionGlyph({ symbol }: { symbol: string }) {
+  if (symbol === "☭") {
+    return (
+      <span className="sovietGlyph" aria-label="Soviet flag reaction">
+        ☭
+      </span>
+    );
+  }
+  return <span>{symbol}</span>;
+}
 
 function TurnList({
   turns,
@@ -30,8 +55,9 @@ function TurnList({
               className={turn.id === selectedTurnId ? "turnItem active" : "turnItem"}
               onClick={() => onSelect(turn.id)}
             >
-              <strong>Turn {turn.number}</strong>
-              <span>{formatInWorldDate(turn.inWorldDate)}</span>
+              <strong>
+                Turn {turn.number} - {formatShortInWorldDate(turn.inWorldDate)}
+              </strong>
               <small>{turn.status === "active" ? "Active" : "Read-only"}</small>
             </button>
           ))}
@@ -59,20 +85,18 @@ function ChannelControl({
   return (
     <section className="panel controlPanel">
       <div className="controlStrip single">
-        <label>
-          Private Channel
-          <select
-            value={selectedChannelId ?? ""}
-            onChange={(event) => onSelectChannel(event.target.value)}
-            disabled={!channels.length}
-          >
-            {channels.map((channel) => (
-              <option key={channel.id} value={channel.id}>
-                {channel.title}
-              </option>
-            ))}
-          </select>
-        </label>
+        <select
+          aria-label="Channel picker"
+          value={selectedChannelId ?? ""}
+          onChange={(event) => onSelectChannel(event.target.value)}
+          disabled={!channels.length}
+        >
+          {channels.map((channel) => (
+            <option key={channel.id} value={channel.id}>
+              {channel.title}
+            </option>
+          ))}
+        </select>
       </div>
       {isReadOnlyTurn ? <p className="muted">Past turns are read-only.</p> : null}
     </section>
@@ -84,6 +108,7 @@ function MessageCard({
   replies,
   isReadOnly,
   currentUserId,
+  roleByUserId,
   onReact,
   onReply
 }: {
@@ -91,11 +116,38 @@ function MessageCard({
   replies: Message[];
   isReadOnly: boolean;
   currentUserId: string;
+  roleByUserId: Map<string, Role>;
   onReact: (messageId: string, emoji: string) => void;
   onReply: (parentMessageId: string, body: string) => void;
 }) {
   const [showThread, setShowThread] = useState(replies.length > 0);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [replyDraft, setReplyDraft] = useState("");
+
+  const reactionBuckets = useMemo(() => {
+    const buckets = new Map<string, { emoji: string; role: Role; count: number; currentUserReacted: boolean }>();
+
+    for (const reaction of message.reactions) {
+      const role = roleByUserId.get(reaction.userId) ?? "player";
+      const key = `${reaction.emoji}-${role}`;
+      const bucket = buckets.get(key);
+      if (!bucket) {
+        buckets.set(key, {
+          emoji: reaction.emoji,
+          role,
+          count: 1,
+          currentUserReacted: reaction.userId === currentUserId
+        });
+      } else {
+        bucket.count += 1;
+        if (reaction.userId === currentUserId) {
+          bucket.currentUserReacted = true;
+        }
+      }
+    }
+
+    return Array.from(buckets.values());
+  }, [currentUserId, message.reactions, roleByUserId]);
 
   const submitReply = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -110,34 +162,62 @@ function MessageCard({
 
   return (
     <article key={message.id} className={message.authorId === currentUserId ? "message mine" : "message"}>
-      <p>{message.body}</p>
+      <div className="messageBodyRow">
+        <MarkdownText content={message.body} className="messageBodyText markdownContent" />
+        <CopyButton text={message.body} ariaLabel="Copy message text" />
+      </div>
       <footer>
         <small>{formatIsoDateTime(message.createdAt)}</small>
         <div className="messageActions">
           <button type="button" className="threadToggle" onClick={() => setShowThread((prev) => !prev)}>
-            {replies.length ? `Thread (${replies.length})` : "Start Thread"}
+            {replies.length ? `↩ (${replies.length})` : "↩"}
           </button>
-          <div className="reactions">
-            {message.reactions.map((reaction) => (
-              <button
-                key={`${reaction.emoji}-${reaction.userId}`}
-                type="button"
-                className={reaction.userId === currentUserId ? "react active" : "react"}
-                onClick={() => !isReadOnly && onReact(message.id, reaction.emoji)}
-                disabled={isReadOnly}
-              >
-                {reaction.emoji}
-              </button>
-            ))}
+          <div className="reactionArea">
+            <div className="reactionTray">
+              {reactionBuckets.map((bucket) => (
+                <button
+                  key={`${bucket.emoji}-${bucket.role}`}
+                  type="button"
+                  className={`reactionPill ${bucket.role}${bucket.currentUserReacted ? " active" : ""}`}
+                  onClick={() => !isReadOnly && onReact(message.id, bucket.emoji)}
+                  disabled={isReadOnly}
+                >
+                  <ReactionGlyph symbol={bucket.emoji} />
+                  <span className="reactionCount">{bucket.count}</span>
+                  <span className="reactionRole">{bucket.role === "gm" ? "GM" : "P"}</span>
+                </button>
+              ))}
+            </div>
             {!isReadOnly ? (
-              <>
-                <button type="button" className="react" onClick={() => onReact(message.id, "👍")}>
-                  👍
+              <div className="reactionPickerWrap">
+                <button
+                  type="button"
+                  className="reactLauncher"
+                  aria-label="Add reaction"
+                  title="Add reaction"
+                  onClick={() => setShowReactionPicker((prev) => !prev)}
+                >
+                  🙂 ➕
                 </button>
-                <button type="button" className="react" onClick={() => onReact(message.id, "👀")}>
-                  👀
-                </button>
-              </>
+                {showReactionPicker ? (
+                  <div className="reactionPicker">
+                    {REACTION_OPTIONS.map((option) => (
+                      <button
+                        key={option.emoji}
+                        type="button"
+                        className="reactionOption"
+                        title={option.label}
+                        onClick={() => {
+                          onReact(message.id, option.emoji);
+                          setShowReactionPicker(false);
+                        }}
+                      >
+                        <ReactionGlyph symbol={option.emoji} />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -149,7 +229,10 @@ function MessageCard({
             <div className="replyList">
               {replies.map((reply) => (
                 <div key={reply.id} className={reply.authorId === currentUserId ? "replyMessage mine" : "replyMessage"}>
-                  <p>{reply.body}</p>
+                  <div className="replyBodyRow">
+                    <MarkdownText content={reply.body} className="replyBodyText markdownContent" />
+                    <CopyButton text={reply.body} ariaLabel="Copy thread reply text" />
+                  </div>
                   <small>{formatIsoDateTime(reply.createdAt)}</small>
                 </div>
               ))}
@@ -179,12 +262,14 @@ function MessageFeed({
   messages,
   isReadOnly,
   currentUserId,
+  roleByUserId,
   onReact,
   onReply
 }: {
   messages: Message[];
   isReadOnly: boolean;
   currentUserId: string;
+  roleByUserId: Map<string, Role>;
   onReact: (messageId: string, emoji: string) => void;
   onReply: (parentMessageId: string, body: string) => void;
 }) {
@@ -212,6 +297,7 @@ function MessageFeed({
           replies={repliesByParent.get(message.id) ?? []}
           isReadOnly={isReadOnly}
           currentUserId={currentUserId}
+          roleByUserId={roleByUserId}
           onReact={onReact}
           onReply={onReply}
         />
@@ -263,10 +349,10 @@ function AIPrivatePanel({ userId }: { userId: string }) {
 }
 
 export function GameApp() {
+  const { user, signOutUser } = useAuth();
   const {
     state,
     currentUser,
-    setCurrentUserId,
     addMessage,
     addReaction,
     getThreadsForUser,
@@ -292,7 +378,7 @@ export function GameApp() {
 
   useEffect(() => {
     setSelectedChannelId(null);
-  }, [selectedTurnId, currentUser.id]);
+  }, [selectedTurnId]);
 
   const activeChannelId = useMemo(() => {
     if (selectedChannelId && channels.some((thread) => thread.id === selectedChannelId)) {
@@ -303,6 +389,7 @@ export function GameApp() {
 
   const messages = activeChannelId ? getMessagesForThread(activeChannelId) : [];
   const isReadOnlyTurn = turn?.status !== "active";
+  const roleByUserId = useMemo(() => new Map(state.users.map((user) => [user.id, user.role])), [state.users]);
 
   const [draft, setDraft] = useState("");
 
@@ -327,18 +414,17 @@ export function GameApp() {
       <header className="topBar panel">
         <div>
           <h1>{state.game.title}</h1>
-          <p className="muted">Threads are optional under each message, with channel-first conversation flow.</p>
+          <p className="muted">Threads are optional under each message. Newspaper text appears as the first post per channel.</p>
         </div>
-        <label>
-          View as
-          <select value={currentUser.id} onChange={(event) => setCurrentUserId(event.target.value)}>
-            {state.users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.displayName} ({user.role})
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="authInfo">
+          <p>
+            <strong>{currentUser.displayName}</strong> ({currentUser.role})
+          </p>
+          <small className="muted">{user?.email}</small>
+          <button type="button" className="secondaryButton" onClick={() => void signOutUser()}>
+            Sign Out
+          </button>
+        </div>
       </header>
 
       <section className="contentGrid">
@@ -355,13 +441,8 @@ export function GameApp() {
               <>
                 <div className="turnHeader">
                   <h2>
-                    Turn {turn.number}: {turn.newspaperTitle}
+                    Turn {turn.number} - {formatInWorldDate(turn.inWorldDate)}
                   </h2>
-                  <p>
-                    <strong>Date:</strong> {formatInWorldDate(turn.inWorldDate)}
-                  </p>
-                  <p>{turn.newspaperBody}</p>
-                  <small>Published {formatIsoDateTime(turn.publishedAt)}</small>
                 </div>
 
                 <ChannelControl
@@ -374,6 +455,7 @@ export function GameApp() {
                 <MessageFeed
                   messages={messages}
                   isReadOnly={isReadOnlyTurn}
+                  roleByUserId={roleByUserId}
                   onReact={(messageId, emoji) => addReaction(messageId, currentUser.id, emoji)}
                   onReply={replyInThread}
                   currentUserId={currentUser.id}

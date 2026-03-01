@@ -10,9 +10,9 @@ export const initialState: GameState = {
   },
   users: [
     { id: "u-gm", displayName: "GM", role: "gm" },
-    { id: "u-1", displayName: "Alex", role: "player" },
-    { id: "u-2", displayName: "Sam", role: "player" },
-    { id: "u-3", displayName: "Riley", role: "player" }
+    { id: "u-1", displayName: "USA", role: "player" },
+    { id: "u-2", displayName: "USSR", role: "player" },
+    { id: "u-3", displayName: "Finland", role: "player" }
   ],
   turns: [
     {
@@ -20,8 +20,6 @@ export const initialState: GameState = {
       gameId: "game-1",
       number: 1,
       inWorldDate: "1962-10-14",
-      newspaperTitle: "U-2 Recon Flights Intensify",
-      newspaperBody: "Intelligence reports indicate accelerated missile site construction.",
       publishedAt: new Date(now.getTime() - 86_400_000).toISOString(),
       status: "archived"
     },
@@ -30,8 +28,6 @@ export const initialState: GameState = {
       gameId: "game-1",
       number: 2,
       inWorldDate: "1962-10-15",
-      newspaperTitle: "Naval Movements Detected",
-      newspaperBody: "Multiple fleets alter course in the Atlantic as negotiations stall.",
       publishedAt: now.toISOString(),
       status: "active"
     }
@@ -43,7 +39,7 @@ export const initialState: GameState = {
       turnId: "turn-2",
       kind: "gm_player",
       participantIds: ["u-gm", "u-1"],
-      title: "GM ↔ Alex",
+      title: "GM ↔ USA",
       createdAt: now.toISOString()
     },
     {
@@ -52,7 +48,7 @@ export const initialState: GameState = {
       turnId: "turn-2",
       kind: "gm_player",
       participantIds: ["u-gm", "u-2"],
-      title: "GM ↔ Sam",
+      title: "GM ↔ USSR",
       createdAt: now.toISOString()
     },
     {
@@ -61,7 +57,7 @@ export const initialState: GameState = {
       turnId: "turn-2",
       kind: "gm_player",
       participantIds: ["u-gm", "u-3"],
-      title: "GM ↔ Riley",
+      title: "GM ↔ Finland",
       createdAt: now.toISOString()
     },
     {
@@ -70,17 +66,41 @@ export const initialState: GameState = {
       turnId: "turn-2",
       kind: "player_player",
       participantIds: ["u-1", "u-2"],
-      title: "Alex ↔ Sam",
+      title: "USA ↔ USSR",
       createdAt: now.toISOString()
     }
   ],
   messages: [
     {
+      id: "m-news-u1",
+      threadId: "t-gm-u1-2",
+      authorId: "u-gm",
+      body: "NEWSPAPER - October 15, 1962: Multiple fleets alter course in the Atlantic as negotiations stall.",
+      createdAt: new Date(now.getTime() - 300_000).toISOString(),
+      reactions: []
+    },
+    {
+      id: "m-news-u2",
+      threadId: "t-gm-u2-2",
+      authorId: "u-gm",
+      body: "NEWSPAPER - October 15, 1962: Multiple fleets alter course in the Atlantic as negotiations stall.",
+      createdAt: new Date(now.getTime() - 300_000).toISOString(),
+      reactions: []
+    },
+    {
+      id: "m-news-u3",
+      threadId: "t-gm-u3-2",
+      authorId: "u-gm",
+      body: "NEWSPAPER - October 15, 1962: Multiple fleets alter course in the Atlantic as negotiations stall.",
+      createdAt: new Date(now.getTime() - 300_000).toISOString(),
+      reactions: []
+    },
+    {
       id: "m-1",
       threadId: "t-gm-u1-2",
       authorId: "u-gm",
       body: "Your intel contact says rail traffic increased overnight near the harbor.",
-      createdAt: now.toISOString(),
+      createdAt: new Date(now.getTime() - 180_000).toISOString(),
       reactions: [{ emoji: "👀", userId: "u-1" }]
     },
     {
@@ -89,7 +109,7 @@ export const initialState: GameState = {
       parentMessageId: "m-1",
       authorId: "u-1",
       body: "Can I divert logistics inspection teams without alerting local command?",
-      createdAt: new Date(now.getTime() + 120_000).toISOString(),
+      createdAt: new Date(now.getTime() - 120_000).toISOString(),
       reactions: []
     },
     {

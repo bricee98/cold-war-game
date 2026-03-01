@@ -11,8 +11,8 @@ A laptop-first web app for your turn-based Cold War game:
 ## Stack
 
 - Next.js (App Router) + TypeScript
-- Firebase-ready wiring (Auth + Firestore)
-- In-memory mock store for immediate local iteration
+- Firebase Auth + Firestore realtime sync
+- Local seed data used only to initialize a new Firestore game on first run
 
 ## Run locally
 
@@ -31,17 +31,22 @@ npm run dev:poll
 
 ## Current behavior
 
-- Role switcher lets you view as GM or any player.
+- Firebase Auth gate with Google sign-in.
+- Signed-in accounts map to `GM`, `USA`, `USSR`, or `Finland` by env-configured email/UID rules.
+- Turns, channels, messages, replies, reactions, and newspapers are persisted in Firestore.
 - GM can navigate to `/gm` to publish newspaper updates that auto-advance the turn.
+- Turns store date/state only (no title or description fields).
+- The first message in each new `GM ↔ player` channel is the newspaper body for that turn.
 - Channel selection is a compact control above the message feed.
 - Threads are optional and live under each message (Slack-style replies).
+- Newspaper and message bodies support Markdown rendering.
 - Messaging/reactions are allowed only on the active turn.
 - Past turns are read-only.
 - Player AI panel is private by role context.
 
 ## Firebase handoff plan
 
-1. Replace the in-memory store (`src/lib/gameStore.tsx`) with Firestore listeners/writes.
+1. Replace role/env mapping with Firestore-backed membership + server-side role checks.
 2. Use this Firestore layout:
 
 - `games/{gameId}`
@@ -57,6 +62,7 @@ npm run dev:poll
 ## Files
 
 - `src/components/GameApp.tsx`: main UI and turn/channel workflow.
+- `src/lib/auth.tsx`: Firebase auth state + role mapping.
 - `src/lib/gameStore.tsx`: mock realtime domain logic.
 - `src/lib/firebase.ts`: Firebase initialization helper.
 - `src/types/game.ts`: domain model types.
@@ -65,5 +71,7 @@ npm run dev:poll
 
 ## Notes
 
+- Configure role mapping values in `.env.local` based on `.env.example` before first login.
+- Create a Firestore Database in Firebase Console before first app run.
 - `firestore.rules` is a starter draft; validate and refine with the Firebase emulator before production.
 - AI responses are currently simulated in `getAIResponses`.

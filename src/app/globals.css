@@ -40,6 +40,14 @@ select {
   gap: 1rem;
 }
 
+.authShell {
+  place-items: center;
+}
+
+.authPanel {
+  width: min(560px, 94vw);
+}
+
 .simplePage {
   max-width: 1200px;
   margin: 0 auto;
@@ -119,6 +127,98 @@ select {
   padding-bottom: 0.6rem;
 }
 
+.newspaperBodyRow,
+.messageBodyRow,
+.replyBodyRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.newspaperBodyRow p,
+.messageBodyText,
+.replyBodyText {
+  margin: 0;
+}
+
+.messageBodyText {
+  flex: 1;
+}
+
+.replyBodyText {
+  flex: 1;
+}
+
+.markdownContent > :first-child {
+  margin-top: 0;
+}
+
+.markdownContent > :last-child {
+  margin-bottom: 0;
+}
+
+.markdownContent p,
+.markdownContent ul,
+.markdownContent ol,
+.markdownContent blockquote,
+.markdownContent pre {
+  margin: 0 0 0.5rem;
+}
+
+.markdownContent ul,
+.markdownContent ol {
+  padding-left: 1.2rem;
+}
+
+.markdownContent code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background: #eee7db;
+  border-radius: 4px;
+  padding: 0.05rem 0.22rem;
+}
+
+.markdownContent pre {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  background: #f6efe3;
+}
+
+.markdownContent pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.markdownContent blockquote {
+  border-left: 3px solid var(--border);
+  margin-left: 0;
+  padding-left: 0.6rem;
+  color: #454a50;
+}
+
+.markdownContent a {
+  color: var(--accent-2);
+}
+
+.copyButton {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  width: 2rem;
+  height: 1.75rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .conversationPanel {
   grid-template-rows: auto auto 1fr auto;
   min-height: 72vh;
@@ -184,6 +284,8 @@ select {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .threadToggle {
@@ -195,21 +297,111 @@ select {
   cursor: pointer;
 }
 
-.reactions {
-  display: flex;
-  gap: 0.3rem;
+.reactLauncher {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
 }
 
-.react {
+.reactionArea {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.reactionTray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.reactionPill {
   border: 1px solid var(--border);
   background: white;
   border-radius: 999px;
-  padding: 0.12rem 0.42rem;
+  padding: 0.12rem 0.45rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--ink);
 }
 
-.react.active {
-  border-color: var(--accent-2);
+.reactionPill.gm {
+  border-color: #3f6d93;
+  background: #e8f1fa;
+}
+
+.reactionPill.player {
+  border-color: #8f6d3f;
+  background: #f8f1e3;
+}
+
+.reactionPill.active {
+  box-shadow: inset 0 0 0 1px #1f2328;
+}
+
+.reactionCount {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.reactionRole {
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.05rem 0.28rem;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.reactionPickerWrap {
+  position: relative;
+}
+
+.reactionPicker {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.3rem);
+  z-index: 4;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 0.35rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(2rem, 1fr));
+  gap: 0.25rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.reactionOption {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.22rem 0.32rem;
+  cursor: pointer;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sovietGlyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.2rem;
+  height: 1.05rem;
+  padding: 0 0.2rem;
+  border-radius: 3px;
+  background: #b21218;
+  color: #f4c742;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .threadReplies {
@@ -279,6 +471,25 @@ button {
   cursor: pointer;
 }
 
+.authButton {
+  border: 1px solid var(--accent-2);
+  background: var(--accent-2);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.secondaryButton {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+
 .compose button:disabled,
 .stack button:disabled {
   background: #8e908f;
@@ -290,6 +501,12 @@ button {
   display: grid;
   align-content: start;
   gap: 1rem;
+}
+
+.authInfo {
+  display: grid;
+  justify-items: end;
+  gap: 0.25rem;
 }
 
 .twoCol {
@@ -378,5 +595,12 @@ button {
 
   .compose {
     grid-template-columns: 1fr;
+  }
+
+  .newspaperBodyRow,
+  .messageBodyRow,
+  .replyBodyRow {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

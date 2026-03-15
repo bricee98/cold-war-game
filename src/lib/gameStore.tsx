@@ -3,7 +3,9 @@
 import {
   collection,
   doc,
-  Firestore,
+  type DocumentData,
+  type DocumentReference,
+  type Firestore,
   getDoc,
   onSnapshot,
   orderBy,
@@ -12,10 +14,10 @@ import {
   setDoc,
   writeBatch
 } from "firebase/firestore";
-import { createContext, ReactNode, useContext, useEffect, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { getFirebase } from "@/lib/firebase";
 import { initialState } from "@/lib/mockData";
-import { GameState, Message, Reaction, Thread, Turn, User } from "@/types/game";
+import { type AIMessage, type GameState, type Message, type Reaction, type Thread, type Turn, type User } from "@/types/game";
 
 interface PublishTurnInput {
   inWorldDate: string;
@@ -27,6 +29,7 @@ interface StoreContextValue {
   currentUser: User;
   addMessage: (threadId: string, authorId: string, body: string, parentMessageId?: string) => void;
   addReaction: (messageId: string, userId: string, emoji: string) => void;
+  deleteMessage: (messageId: string, userId: string) => { ok: true } | { ok: false; reason: string };
   addAIMessage: (userId: string, role: "user" | "assistant", body: string) => void;
   publishTurn: (input: PublishTurnInput) => void;
   getThreadsForUser: (userId: string, turnId: string) => Thread[];
@@ -35,17 +38,6 @@ interface StoreContextValue {
 }
 
 const GameStoreContext = createContext<StoreContextValue | undefined>(undefined);
-
-function safeRandomId(): string {
-  const cryptoObject = globalThis.crypto;
-  if (cryptoObject && typeof cryptoObject.randomUUID === "function") {
-    return cryptoObject.randomUUID().slice(0, 8);
-  }
-  return Math.random().toString(36).slice(2, 10);
-}
-
-const id = (prefix: string) => `${prefix}-${safeRandomId()}`;
-
 const GAME_ID = initialState.game.id;
 
 function asIsoString(value: unknown): string {
@@ -68,7 +60,26 @@ function refs(db: Firestore) {
   const turnsCol = collection(db, "games", GAME_ID, "turns");
   const threadsCol = collection(db, "games", GAME_ID, "threads");
   const messagesCol = collection(db, "games", GAME_ID, "messages");
-  return { gameRef, turnsCol, threadsCol, messagesCol };
+  const membersCol = collection(db, "games", GAME_ID, "members");
+  return { gameRef, turnsCol, threadsCol, messagesCol, membersCol };
+}
+
+function aiMessagesCol(db: Firestore, userId: string) {
+  return collection(db, "games", GAME_ID, "aiConversations", userId, "messages");
+}
+
+async function ensureMembership(db: Firestore, firebaseUid: string, currentUser: User) {
+  const { membersCol } = refs(db);
+  await setDoc(
+    doc(membersCol, firebaseUid),
+    {
+      mappedUserId: currentUser.id,
+      role: currentUser.role,
+      displayName: currentUser.displayName,
+      updatedAt: new Date().toISOString()
+    },
+    { merge: true }
+  );
 }
 
 async function seedInitialGame(db: Firestore) {
@@ -184,34 +195,55 @@ function mapMessageFromDoc(messageId: string, data: Record<string, unknown>): Me
   };
 }
 
+function mapAIMessageFromDoc(messageId: string, userId: string, data: Record<string, unknown>): AIMessage {
+  const role = data.role === "assistant" ? "assistant" : "user";
+  return {
+    id: messageId,
+    userId,
+    role,
+    body: typeof data.body === "string" ? data.body : "",
+    createdAt: asIsoString(data.createdAt)
+  };
+}
+
 export function GameStoreProvider({
   children,
-  currentUserId
+  currentUserId,
+  firebaseUid
 }: {
   children: ReactNode;
   currentUserId: string;
+  firebaseUid: string;
 }) {
   const [state, setState] = useState<GameState>(initialState);
 
-  const currentUser = state.users.find((u) => u.id === currentUserId) ?? state.users[0];
+  const currentUser = state.users.find((user) => user.id === currentUserId) ?? state.users[0];
 
   useEffect(() => {
     let cancelled = false;
-    let unsubscribes: Array<() => void> = [];
+    const unsubscribes: Array<() => void> = [];
 
     async function startRealtime() {
       let db: Firestore;
       try {
         db = getFirebase().db;
       } catch (error) {
-        console.error("Firestore unavailable; using in-memory state.", error);
+        console.error("Firestore unavailable; using local state.", error);
         return;
       }
 
       try {
-        await seedInitialGame(db);
+        await ensureMembership(db, firebaseUid, currentUser);
       } catch (error) {
-        console.error("Failed seeding game state.", error);
+        console.error("Failed to register membership.", error);
+      }
+
+      if (currentUser.role === "gm") {
+        try {
+          await seedInitialGame(db);
+        } catch (error) {
+          console.error("Failed seeding game state.", error);
+        }
       }
 
       if (cancelled) {
@@ -220,7 +252,7 @@ export function GameStoreProvider({
 
       const { gameRef, turnsCol, threadsCol, messagesCol } = refs(db);
 
-      unsubscribes = [
+      unsubscribes.push(
         onSnapshot(
           gameRef,
           (snapshot) => {
@@ -241,7 +273,10 @@ export function GameStoreProvider({
           (error) => {
             console.error("Game listener error", error);
           }
-        ),
+        )
+      );
+
+      unsubscribes.push(
         onSnapshot(
           query(turnsCol, orderBy("number", "asc")),
           (snapshot) => {
@@ -251,7 +286,10 @@ export function GameStoreProvider({
           (error) => {
             console.error("Turns listener error", error);
           }
-        ),
+        )
+      );
+
+      unsubscribes.push(
         onSnapshot(
           query(threadsCol, orderBy("createdAt", "asc")),
           (snapshot) => {
@@ -263,7 +301,10 @@ export function GameStoreProvider({
           (error) => {
             console.error("Threads listener error", error);
           }
-        ),
+        )
+      );
+
+      unsubscribes.push(
         onSnapshot(
           query(messagesCol, orderBy("createdAt", "asc")),
           (snapshot) => {
@@ -276,7 +317,22 @@ export function GameStoreProvider({
             console.error("Messages listener error", error);
           }
         )
-      ];
+      );
+
+      unsubscribes.push(
+        onSnapshot(
+          query(aiMessagesCol(db, currentUser.id), orderBy("createdAt", "asc")),
+          (snapshot) => {
+            const aiMessages = snapshot.docs.map((snap) =>
+              mapAIMessageFromDoc(snap.id, currentUser.id, snap.data() as Record<string, unknown>)
+            );
+            setState((prev) => ({ ...prev, aiMessages }));
+          },
+          (error) => {
+            console.error("AI messages listener error", error);
+          }
+        )
+      );
     }
 
     void startRealtime();
@@ -287,7 +343,7 @@ export function GameStoreProvider({
         unsubscribe();
       }
     };
-  }, []);
+  }, [currentUser, firebaseUid]);
 
   const addMessage = (threadId: string, authorId: string, body: string, parentMessageId?: string) => {
     const trimmed = body.trim();
@@ -335,7 +391,7 @@ export function GameStoreProvider({
   };
 
   const addReaction = (messageId: string, userId: string, emoji: string) => {
-    const message = state.messages.find((m) => m.id === messageId);
+    const message = state.messages.find((entry) => entry.id === messageId);
     if (!message) {
       return;
     }
@@ -373,25 +429,98 @@ export function GameStoreProvider({
     });
   };
 
+  const deleteMessage = (messageId: string, userId: string): { ok: true } | { ok: false; reason: string } => {
+    const message = state.messages.find((entry) => entry.id === messageId);
+    if (!message) {
+      return { ok: false, reason: "Message not found." };
+    }
+
+    if (message.authorId !== userId) {
+      return { ok: false, reason: "You can only delete your own messages." };
+    }
+
+    const thread = state.threads.find((entry) => entry.id === message.threadId);
+    const activeTurn = state.turns.find((turn) => turn.status === "active");
+    if (!thread || !activeTurn || thread.turnId !== activeTurn.id || !thread.participantIds.includes(userId)) {
+      return { ok: false, reason: "Only messages in the active turn can be deleted." };
+    }
+
+    const byParentId = new Map<string, Message[]>();
+    for (const candidate of state.messages) {
+      if (!candidate.parentMessageId) {
+        continue;
+      }
+      const bucket = byParentId.get(candidate.parentMessageId) ?? [];
+      bucket.push(candidate);
+      byParentId.set(candidate.parentMessageId, bucket);
+    }
+
+    const queue: Message[] = [message];
+    const toDelete = new Set<string>([message.id]);
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current) {
+        break;
+      }
+      const children = byParentId.get(current.id) ?? [];
+      for (const child of children) {
+        if (child.authorId !== userId) {
+          return {
+            ok: false,
+            reason: "Delete blocked because this message has thread replies from other players."
+          };
+        }
+        if (!toDelete.has(child.id)) {
+          toDelete.add(child.id);
+          queue.push(child);
+        }
+      }
+    }
+
+    let db: Firestore;
+    try {
+      db = getFirebase().db;
+    } catch {
+      return { ok: false, reason: "Firestore unavailable." };
+    }
+
+    const { messagesCol } = refs(db);
+    const batch = writeBatch(db);
+    for (const idToDelete of toDelete) {
+      batch.delete(doc(messagesCol, idToDelete));
+    }
+    void batch.commit().catch((error) => {
+      console.error("Failed to delete message", error);
+    });
+
+    return { ok: true };
+  };
+
   const addAIMessage = (userId: string, role: "user" | "assistant", body: string) => {
     const trimmed = body.trim();
     if (!trimmed) {
       return;
     }
+    if (userId !== currentUser.id) {
+      return;
+    }
 
-    setState((prev) => ({
-      ...prev,
-      aiMessages: [
-        ...prev.aiMessages,
-        {
-          id: id("ai"),
-          userId,
-          role,
-          body: trimmed,
-          createdAt: new Date().toISOString()
-        }
-      ]
-    }));
+    let db: Firestore;
+    try {
+      db = getFirebase().db;
+    } catch {
+      return;
+    }
+
+    const messageRef = doc(aiMessagesCol(db, userId));
+    void setDoc(messageRef, {
+      userId,
+      role,
+      body: trimmed,
+      createdAt: new Date().toISOString()
+    }).catch((error) => {
+      console.error("Failed to save AI message", error);
+    });
   };
 
   const publishTurn = ({ inWorldDate, body }: PublishTurnInput) => {
@@ -417,27 +546,30 @@ export function GameStoreProvider({
     const { gameRef, turnsCol, threadsCol, messagesCol } = refs(db);
     const playerIds = state.users.filter((user) => user.role === "player").map((user) => user.id);
     const newTurnNumber = Math.max(...state.turns.map((turn) => turn.number)) + 1;
+    const nowIso = new Date().toISOString();
 
     const newTurnRef = doc(turnsCol);
     const newTurnId = newTurnRef.id;
 
-    const newGMThreads = playerIds.map((playerId) => {
-      const playerName = state.users.find((user) => user.id === playerId)?.displayName ?? playerId;
-      const threadRef = doc(threadsCol);
-      return {
-        ref: threadRef,
-        data: {
-          gameId: GAME_ID,
-          turnId: newTurnId,
-          kind: "gm_player" as const,
-          participantIds: [gmId, playerId],
-          title: `GM ↔ ${playerName}`,
-          createdAt: new Date().toISOString()
-        }
-      };
-    });
+    const newGMThreads: Array<{ ref: DocumentReference<DocumentData>; data: Record<string, unknown> }> = playerIds.map(
+      (playerId) => {
+        const playerName = state.users.find((user) => user.id === playerId)?.displayName ?? playerId;
+        const threadRef = doc(threadsCol);
+        return {
+          ref: threadRef,
+          data: {
+            gameId: GAME_ID,
+            turnId: newTurnId,
+            kind: "gm_player",
+            participantIds: [gmId, playerId],
+            title: `GM ↔ ${playerName}`,
+            createdAt: nowIso
+          }
+        };
+      }
+    );
 
-    const pairThreads: Array<{ ref: ReturnType<typeof doc>; data: Omit<Thread, "id"> }> = [];
+    const pairThreads: Array<{ ref: DocumentReference<DocumentData>; data: Record<string, unknown> }> = [];
     for (let i = 0; i < playerIds.length; i += 1) {
       for (let j = i + 1; j < playerIds.length; j += 1) {
         const first = playerIds[i];
@@ -453,20 +585,19 @@ export function GameStoreProvider({
             kind: "player_player",
             participantIds: [first, second],
             title: `${firstName} ↔ ${secondName}`,
-            createdAt: new Date().toISOString()
+            createdAt: nowIso
           }
         });
       }
     }
 
     const batch = writeBatch(db);
-
     batch.update(doc(turnsCol, activeTurn.id), { status: "archived" });
     batch.set(newTurnRef, {
       gameId: GAME_ID,
       number: newTurnNumber,
       inWorldDate,
-      publishedAt: new Date().toISOString(),
+      publishedAt: nowIso,
       status: "active"
     });
 
@@ -480,7 +611,7 @@ export function GameStoreProvider({
         threadId: gmThread.ref.id,
         authorId: gmId,
         body: `NEWSPAPER - ${inWorldDate}: ${newspaperBody}`,
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso,
         reactions: []
       });
     }
@@ -496,7 +627,9 @@ export function GameStoreProvider({
     state.threads.filter((thread) => thread.turnId === turnId && thread.participantIds.includes(userId));
 
   const getMessagesForThread = (threadId: string) =>
-    state.messages.filter((message) => message.threadId === threadId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    state.messages
+      .filter((message) => message.threadId === threadId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const getTurnById = (turnId: string) => state.turns.find((turn) => turn.id === turnId);
 
@@ -505,6 +638,7 @@ export function GameStoreProvider({
     currentUser,
     addMessage,
     addReaction,
+    deleteMessage,
     addAIMessage,
     publishTurn,
     getThreadsForUser,
@@ -526,8 +660,4 @@ export function useGameStore() {
 export function useCurrentTurn() {
   const { state } = useGameStore();
   return state.turns.find((turn) => turn.id === state.game.activeTurnId);
-}
-
-export function getAIResponses(prompt: string): string {
-  return `Simulated AI response for: ${prompt.slice(0, 120)}`;
 }

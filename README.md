@@ -34,6 +34,7 @@ npm run dev:poll
 - Firebase Auth gate with Google sign-in.
 - Signed-in accounts map to `GM`, `USA`, `USSR`, or `Finland` by env-configured email/UID rules.
 - Turns, channels, messages, replies, reactions, and newspapers are persisted in Firestore.
+- Private AI chats are persisted in Firestore and survive refresh/login.
 - GM can navigate to `/gm` to publish newspaper updates that auto-advance the turn.
 - Turns store date/state only (no title or description fields).
 - The first message in each new `GM ↔ player` channel is the newspaper body for that turn.
@@ -68,10 +69,11 @@ npm run dev:poll
 - `src/types/game.ts`: domain model types.
 - `firestore.rules`: starter access-control draft.
 - `.env.example`: Firebase env vars.
+- `src/app/api/ai/respond/route.ts`: server-side AI proxy for private assistant replies.
 
 ## Notes
 
 - Configure role mapping values in `.env.local` based on `.env.example` before first login.
 - Create a Firestore Database in Firebase Console before first app run.
 - `firestore.rules` is a starter draft; validate and refine with the Firebase emulator before production.
-- AI responses are currently simulated in `getAIResponses`.
+- Add `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` / `OPENAI_REASONING_EFFORT`) to `.env.local` for live AI replies.

@@ -59,6 +59,14 @@ select {
   align-items: end;
 }
 
+.topBar.panel {
+  display: flex;
+}
+
+.topBar > :first-child {
+  min-width: 0;
+}
+
 .contentGrid {
   display: grid;
   grid-template-columns: 240px 1fr;
@@ -273,6 +281,11 @@ select {
   background: #eef6fb;
 }
 
+.message.needsAttention {
+  border-color: #af7b1f;
+  background: #fff4db;
+}
+
 .message footer {
   display: flex;
   justify-content: space-between;
@@ -295,6 +308,21 @@ select {
   border-radius: 999px;
   padding: 0.12rem 0.5rem;
   cursor: pointer;
+}
+
+.deleteToggle {
+  padding: 0.12rem 0.4rem;
+  color: var(--muted);
+}
+
+.deleteToggle:hover {
+  color: var(--ink);
+}
+
+.iconGlyph {
+  width: 0.9rem;
+  height: 0.9rem;
+  display: block;
 }
 
 .reactLauncher {
@@ -431,6 +459,18 @@ select {
   background: #eef6fb;
 }
 
+.replyMessage.needsAttention {
+  border-color: #af7b1f;
+  background: #fff6e5;
+}
+
+.replyFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .replyCompose {
   padding-top: 0.2rem;
 }
@@ -452,6 +492,13 @@ select {
 
 .compose {
   grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
+.compose textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 2.5rem;
 }
 
 input,
@@ -505,7 +552,9 @@ button {
 
 .authInfo {
   display: grid;
+  margin-left: auto;
   justify-items: end;
+  text-align: right;
   gap: 0.25rem;
 }
 
@@ -585,6 +634,18 @@ button {
 }
 
 @media (max-width: 760px) {
+  .topBar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+
+  .authInfo {
+    justify-items: start;
+    text-align: left;
+    margin-left: 0;
+  }
+
   .contentGrid {
     grid-template-columns: 1fr;
   }

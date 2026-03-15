@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { CopyButton } from "@/components/CopyButton";
 import { MarkdownText } from "@/components/MarkdownText";
 import { useAuth } from "@/lib/auth";
 import { formatInWorldDate, formatIsoDateTime, formatShortInWorldDate } from "@/lib/format";
-import { getAIResponses, useGameStore } from "@/lib/gameStore";
+import { useGameStore } from "@/lib/gameStore";
 import { Message, Role, Thread, Turn } from "@/types/game";
 
 const REACTION_OPTIONS = [
@@ -20,6 +20,88 @@ const REACTION_OPTIONS = [
   { emoji: "🇫🇮", label: "Finland" }
 ] as const;
 
+interface ReactionBucket {
+  emoji: string;
+  role: Role;
+  count: number;
+  currentUserReacted: boolean;
+}
+
+interface AIPageContext {
+  gameTitle: string;
+  viewer: {
+    id: string;
+    displayName: string;
+    role: Role;
+  };
+  selectedTurn: {
+    id: string;
+    number: number;
+    inWorldDate: string;
+    status: Turn["status"];
+  } | null;
+  visibleTurns: Array<{
+    number: number;
+    inWorldDate: string;
+    status: Turn["status"];
+  }>;
+  selectedChannel: {
+    id: string;
+    title: string;
+    kind: Thread["kind"];
+    participantIds: string[];
+  } | null;
+  visibleChannels: Array<{
+    id: string;
+    title: string;
+    kind: Thread["kind"];
+    participantIds: string[];
+  }>;
+  visibleMessages: Array<{
+    id: string;
+    parentMessageId?: string;
+    authorId: string;
+    authorName: string;
+    authorRole: Role;
+    createdAt: string;
+    body: string;
+    reactions: Array<{
+      emoji: string;
+      userId: string;
+      role: Role;
+    }>;
+  }>;
+}
+
+function buildReactionBuckets(
+  message: Message,
+  currentUserId: string,
+  roleByUserId: Map<string, Role>
+): ReactionBucket[] {
+  const buckets = new Map<string, ReactionBucket>();
+
+  for (const reaction of message.reactions) {
+    const role = roleByUserId.get(reaction.userId) ?? "player";
+    const key = `${reaction.emoji}-${role}`;
+    const bucket = buckets.get(key);
+    if (!bucket) {
+      buckets.set(key, {
+        emoji: reaction.emoji,
+        role,
+        count: 1,
+        currentUserReacted: reaction.userId === currentUserId
+      });
+    } else {
+      bucket.count += 1;
+      if (reaction.userId === currentUserId) {
+        bucket.currentUserReacted = true;
+      }
+    }
+  }
+
+  return Array.from(buckets.values());
+}
+
 function ReactionGlyph({ symbol }: { symbol: string }) {
   if (symbol === "☭") {
     return (
@@ -29,6 +111,28 @@ function ReactionGlyph({ symbol }: { symbol: string }) {
     );
   }
   return <span>{symbol}</span>;
+}
+
+function TrashGlyph() {
+  return (
+    <svg
+      className="iconGlyph"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
 }
 
 function TurnList({
@@ -110,7 +214,8 @@ function MessageCard({
   currentUserId,
   roleByUserId,
   onReact,
-  onReply
+  onReply,
+  onDelete
 }: {
   message: Message;
   replies: Message[];
@@ -119,35 +224,17 @@ function MessageCard({
   roleByUserId: Map<string, Role>;
   onReact: (messageId: string, emoji: string) => void;
   onReply: (parentMessageId: string, body: string) => void;
+  onDelete: (messageId: string) => void;
 }) {
   const [showThread, setShowThread] = useState(replies.length > 0);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [openReplyPickerId, setOpenReplyPickerId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
 
-  const reactionBuckets = useMemo(() => {
-    const buckets = new Map<string, { emoji: string; role: Role; count: number; currentUserReacted: boolean }>();
-
-    for (const reaction of message.reactions) {
-      const role = roleByUserId.get(reaction.userId) ?? "player";
-      const key = `${reaction.emoji}-${role}`;
-      const bucket = buckets.get(key);
-      if (!bucket) {
-        buckets.set(key, {
-          emoji: reaction.emoji,
-          role,
-          count: 1,
-          currentUserReacted: reaction.userId === currentUserId
-        });
-      } else {
-        bucket.count += 1;
-        if (reaction.userId === currentUserId) {
-          bucket.currentUserReacted = true;
-        }
-      }
-    }
-
-    return Array.from(buckets.values());
-  }, [currentUserId, message.reactions, roleByUserId]);
+  const reactionBuckets = useMemo(
+    () => buildReactionBuckets(message, currentUserId, roleByUserId),
+    [currentUserId, message, roleByUserId]
+  );
 
   const submitReply = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -160,8 +247,39 @@ function MessageCard({
     setShowThread(true);
   };
 
+  const reactedByCurrentUser = message.reactions.some((reaction) => reaction.userId === currentUserId);
+  const messageNeedsAttention = message.authorId !== currentUserId && !reactedByCurrentUser;
+
+  const onReplyKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!event.shiftKey && event.key === "Enter") {
+      event.preventDefault();
+      const trimmed = replyDraft.trim();
+      if (!trimmed || isReadOnly) {
+        return;
+      }
+      onReply(message.id, trimmed);
+      setReplyDraft("");
+      setShowThread(true);
+    }
+  };
+
+  const confirmDelete = (messageId: string, label: string) => {
+    if (isReadOnly) {
+      return;
+    }
+    if (!window.confirm(`Delete this ${label}?`)) {
+      return;
+    }
+    onDelete(messageId);
+  };
+
   return (
-    <article key={message.id} className={message.authorId === currentUserId ? "message mine" : "message"}>
+    <article
+      key={message.id}
+      className={`${message.authorId === currentUserId ? "message mine" : "message"}${
+        messageNeedsAttention ? " needsAttention" : ""
+      }`}
+    >
       <div className="messageBodyRow">
         <MarkdownText content={message.body} className="messageBodyText markdownContent" />
         <CopyButton text={message.body} ariaLabel="Copy message text" />
@@ -172,6 +290,17 @@ function MessageCard({
           <button type="button" className="threadToggle" onClick={() => setShowThread((prev) => !prev)}>
             {replies.length ? `↩ (${replies.length})` : "↩"}
           </button>
+          {message.authorId === currentUserId && !isReadOnly ? (
+            <button
+              type="button"
+              className="threadToggle deleteToggle"
+              onClick={() => confirmDelete(message.id, "message")}
+              aria-label="Delete message"
+              title="Delete message"
+            >
+              <TrashGlyph />
+            </button>
+          ) : null}
           <div className="reactionArea">
             <div className="reactionTray">
               {reactionBuckets.map((bucket) => (
@@ -228,13 +357,92 @@ function MessageCard({
           {replies.length ? (
             <div className="replyList">
               {replies.map((reply) => (
-                <div key={reply.id} className={reply.authorId === currentUserId ? "replyMessage mine" : "replyMessage"}>
-                  <div className="replyBodyRow">
-                    <MarkdownText content={reply.body} className="replyBodyText markdownContent" />
-                    <CopyButton text={reply.body} ariaLabel="Copy thread reply text" />
-                  </div>
-                  <small>{formatIsoDateTime(reply.createdAt)}</small>
-                </div>
+                (() => {
+                  const replyReactionBuckets = buildReactionBuckets(reply, currentUserId, roleByUserId);
+                  const replyNeedsAttention =
+                    reply.authorId !== currentUserId &&
+                    !reply.reactions.some((reaction) => reaction.userId === currentUserId);
+
+                  return (
+                    <div
+                      key={reply.id}
+                      className={`${reply.authorId === currentUserId ? "replyMessage mine" : "replyMessage"}${
+                        replyNeedsAttention ? " needsAttention" : ""
+                      }`}
+                    >
+                      <div className="replyBodyRow">
+                        <MarkdownText content={reply.body} className="replyBodyText markdownContent" />
+                        <CopyButton text={reply.body} ariaLabel="Copy thread reply text" />
+                      </div>
+                      <footer className="replyFooter">
+                        <small>{formatIsoDateTime(reply.createdAt)}</small>
+                        <div className="messageActions">
+                          {reply.authorId === currentUserId && !isReadOnly ? (
+                            <button
+                              type="button"
+                              className="threadToggle deleteToggle"
+                              onClick={() => confirmDelete(reply.id, "reply")}
+                              aria-label="Delete reply"
+                              title="Delete reply"
+                            >
+                              <TrashGlyph />
+                            </button>
+                          ) : null}
+                          <div className="reactionArea">
+                            <div className="reactionTray">
+                              {replyReactionBuckets.map((bucket) => (
+                                <button
+                                  key={`${reply.id}-${bucket.emoji}-${bucket.role}`}
+                                  type="button"
+                                  className={`reactionPill ${bucket.role}${bucket.currentUserReacted ? " active" : ""}`}
+                                  onClick={() => !isReadOnly && onReact(reply.id, bucket.emoji)}
+                                  disabled={isReadOnly}
+                                >
+                                  <ReactionGlyph symbol={bucket.emoji} />
+                                  <span className="reactionCount">{bucket.count}</span>
+                                  <span className="reactionRole">{bucket.role === "gm" ? "GM" : "P"}</span>
+                                </button>
+                              ))}
+                            </div>
+                            {!isReadOnly ? (
+                              <div className="reactionPickerWrap">
+                                <button
+                                  type="button"
+                                  className="reactLauncher"
+                                  aria-label="Add reaction to reply"
+                                  title="Add reaction to reply"
+                                  onClick={() =>
+                                    setOpenReplyPickerId((prev) => (prev === reply.id ? null : reply.id))
+                                  }
+                                >
+                                  🙂 ➕
+                                </button>
+                                {openReplyPickerId === reply.id ? (
+                                  <div className="reactionPicker">
+                                    {REACTION_OPTIONS.map((option) => (
+                                      <button
+                                        key={`${reply.id}-${option.emoji}`}
+                                        type="button"
+                                        className="reactionOption"
+                                        title={option.label}
+                                        onClick={() => {
+                                          onReact(reply.id, option.emoji);
+                                          setOpenReplyPickerId(null);
+                                        }}
+                                      >
+                                        <ReactionGlyph symbol={option.emoji} />
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </footer>
+                    </div>
+                  );
+                })()
               ))}
             </div>
           ) : (
@@ -242,10 +450,14 @@ function MessageCard({
           )}
 
           <form className="compose replyCompose" onSubmit={submitReply}>
-            <input
+            <textarea
               value={replyDraft}
               onChange={(event) => setReplyDraft(event.target.value)}
-              placeholder={isReadOnly ? "Past turn is read-only" : "Reply in thread"}
+              onKeyDown={onReplyKeyDown}
+              rows={2}
+              placeholder={
+                isReadOnly ? "Past turn is read-only" : "Reply in thread (Enter = send, Shift+Enter = newline)"
+              }
               disabled={isReadOnly}
             />
             <button type="submit" disabled={isReadOnly || !replyDraft.trim()}>
@@ -264,7 +476,8 @@ function MessageFeed({
   currentUserId,
   roleByUserId,
   onReact,
-  onReply
+  onReply,
+  onDelete
 }: {
   messages: Message[];
   isReadOnly: boolean;
@@ -272,6 +485,7 @@ function MessageFeed({
   roleByUserId: Map<string, Role>;
   onReact: (messageId: string, emoji: string) => void;
   onReply: (parentMessageId: string, body: string) => void;
+  onDelete: (messageId: string) => void;
 }) {
   const topLevel = useMemo(() => messages.filter((message) => !message.parentMessageId), [messages]);
 
@@ -300,6 +514,7 @@ function MessageFeed({
           roleByUserId={roleByUserId}
           onReact={onReact}
           onReply={onReply}
+          onDelete={onDelete}
         />
       ))}
       {!topLevel.length ? <p className="muted">No messages yet in this channel.</p> : null}
@@ -307,21 +522,57 @@ function MessageFeed({
   );
 }
 
-function AIPrivatePanel({ userId }: { userId: string }) {
+function AIPrivatePanel({ userId, pageContext }: { userId: string; pageContext: AIPageContext }) {
   const { state, addAIMessage } = useGameStore();
   const [draft, setDraft] = useState("");
+  const [isThinking, setIsThinking] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   const aiMessages = state.aiMessages.filter((msg) => msg.userId === userId);
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = draft.trim();
-    if (!trimmed) {
+    if (!trimmed || isThinking) {
       return;
     }
+
+    const history = aiMessages.slice(-12).map((msg) => ({
+      role: msg.role,
+      body: msg.body
+    }));
+
     addAIMessage(userId, "user", trimmed);
-    addAIMessage(userId, "assistant", getAIResponses(trimmed));
     setDraft("");
+    setRequestError(null);
+    setIsThinking(true);
+
+    try {
+      const response = await fetch("/api/ai/respond", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          prompt: trimmed,
+          history,
+          pageContext
+        })
+      });
+
+      const payload = (await response.json()) as { reply?: string; error?: string };
+      if (!response.ok || !payload.reply) {
+        throw new Error(payload.error ?? "AI request failed.");
+      }
+
+      addAIMessage(userId, "assistant", payload.reply);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI request failed.";
+      setRequestError(message);
+      addAIMessage(userId, "assistant", `AI unavailable: ${message}`);
+    } finally {
+      setIsThinking(false);
+    }
   };
 
   return (
@@ -336,13 +587,16 @@ function AIPrivatePanel({ userId }: { userId: string }) {
           </div>
         ))}
       </div>
+      {requestError ? <p className="muted">Last AI error: {requestError}</p> : null}
       <form onSubmit={onSubmit} className="compose">
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Ask your private strategy question"
         />
-        <button type="submit">Send</button>
+        <button type="submit" disabled={!draft.trim() || isThinking}>
+          {isThinking ? "Thinking..." : "Send"}
+        </button>
       </form>
     </details>
   );
@@ -355,6 +609,7 @@ export function GameApp() {
     currentUser,
     addMessage,
     addReaction,
+    deleteMessage,
     getThreadsForUser,
     getMessagesForThread,
     getTurnById
@@ -387,9 +642,66 @@ export function GameApp() {
     return channels[0]?.id ?? null;
   }, [selectedChannelId, channels]);
 
-  const messages = activeChannelId ? getMessagesForThread(activeChannelId) : [];
+  const messages = useMemo(
+    () => (activeChannelId ? getMessagesForThread(activeChannelId) : []),
+    [activeChannelId, getMessagesForThread]
+  );
   const isReadOnlyTurn = turn?.status !== "active";
   const roleByUserId = useMemo(() => new Map(state.users.map((user) => [user.id, user.role])), [state.users]);
+  const userById = useMemo(() => new Map(state.users.map((entry) => [entry.id, entry])), [state.users]);
+
+  const aiPageContext = useMemo<AIPageContext>(
+    () => ({
+      gameTitle: state.game.title,
+      viewer: {
+        id: currentUser.id,
+        displayName: currentUser.displayName,
+        role: currentUser.role
+      },
+      selectedTurn: turn
+        ? {
+            id: turn.id,
+            number: turn.number,
+            inWorldDate: turn.inWorldDate,
+            status: turn.status
+          }
+        : null,
+      visibleTurns: state.turns
+        .slice()
+        .sort((a, b) => a.number - b.number)
+        .map((entry) => ({
+          number: entry.number,
+          inWorldDate: entry.inWorldDate,
+          status: entry.status
+        })),
+      selectedChannel:
+        channels.find((entry) => entry.id === activeChannelId) ?? (channels.length ? channels[0] : null),
+      visibleChannels: channels.map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        kind: entry.kind,
+        participantIds: entry.participantIds
+      })),
+      visibleMessages: messages.slice(-120).map((entry) => {
+        const author = userById.get(entry.authorId);
+        return {
+          id: entry.id,
+          parentMessageId: entry.parentMessageId,
+          authorId: entry.authorId,
+          authorName: author?.displayName ?? entry.authorId,
+          authorRole: author?.role ?? "player",
+          createdAt: entry.createdAt,
+          body: entry.body,
+          reactions: entry.reactions.map((reaction) => ({
+            emoji: reaction.emoji,
+            userId: reaction.userId,
+            role: roleByUserId.get(reaction.userId) ?? "player"
+          }))
+        };
+      })
+    }),
+    [activeChannelId, channels, currentUser.displayName, currentUser.id, currentUser.role, messages, roleByUserId, state.game.title, state.turns, turn, userById]
+  );
 
   const [draft, setDraft] = useState("");
 
@@ -402,11 +714,33 @@ export function GameApp() {
     setDraft("");
   };
 
+  const onTopLevelKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!event.shiftKey && event.key === "Enter") {
+      event.preventDefault();
+      if (!activeChannelId) {
+        return;
+      }
+      const trimmed = draft.trim();
+      if (!trimmed || isReadOnlyTurn) {
+        return;
+      }
+      addMessage(activeChannelId, currentUser.id, trimmed);
+      setDraft("");
+    }
+  };
+
   const replyInThread = (parentMessageId: string, body: string) => {
     if (!activeChannelId) {
       return;
     }
     addMessage(activeChannelId, currentUser.id, body, parentMessageId);
+  };
+
+  const deleteOwnMessage = (messageId: string) => {
+    const result = deleteMessage(messageId, currentUser.id);
+    if (!result.ok) {
+      window.alert(result.reason);
+    }
   };
 
   return (
@@ -458,14 +792,21 @@ export function GameApp() {
                   roleByUserId={roleByUserId}
                   onReact={(messageId, emoji) => addReaction(messageId, currentUser.id, emoji)}
                   onReply={replyInThread}
+                  onDelete={deleteOwnMessage}
                   currentUserId={currentUser.id}
                 />
 
                 <form onSubmit={submitTopLevelMessage} className="compose">
-                  <input
+                  <textarea
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
-                    placeholder={isReadOnlyTurn ? "Past turn is read-only" : "Type a message"}
+                    onKeyDown={onTopLevelKeyDown}
+                    rows={3}
+                    placeholder={
+                      isReadOnlyTurn
+                        ? "Past turn is read-only"
+                        : "Type a message (Enter = send, Shift+Enter = newline)"
+                    }
                     disabled={isReadOnlyTurn || !activeChannelId}
                   />
                   <button type="submit" disabled={isReadOnlyTurn || !activeChannelId || !draft.trim()}>
@@ -478,7 +819,7 @@ export function GameApp() {
             )}
           </section>
 
-          {currentUser.role === "player" ? <AIPrivatePanel userId={currentUser.id} /> : null}
+          {currentUser.role === "player" ? <AIPrivatePanel userId={currentUser.id} pageContext={aiPageContext} /> : null}
         </section>
       </section>
     </main>

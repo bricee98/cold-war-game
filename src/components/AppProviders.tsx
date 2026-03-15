@@ -18,7 +18,7 @@ function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  if (status === "unconfigured" || status === "error") {
+  if (status === "unconfigured") {
     return (
       <main className="appShell authShell">
         <section className="panel authPanel">
@@ -36,6 +36,7 @@ function AuthGate({ children }: { children: ReactNode }) {
         <section className="panel authPanel">
           <h1>Sign In</h1>
           <p className="muted">Use Google sign-in to access the game.</p>
+          {errorMessage ? <p className="muted">{errorMessage}</p> : null}
           <button type="button" onClick={() => void signInWithGoogle()} className="authButton">
             Continue with Google
           </button>
@@ -59,7 +60,11 @@ function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  return <GameStoreProvider currentUserId={mappedUserId}>{children}</GameStoreProvider>;
+  if (!user) {
+    return null;
+  }
+
+  return <GameStoreProvider currentUserId={mappedUserId} firebaseUid={user.uid}>{children}</GameStoreProvider>;
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {

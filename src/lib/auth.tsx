@@ -111,7 +111,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await signInWithPopup(auth, new GoogleAuthProvider());
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to sign in.";
-      setStatus("error");
       setErrorMessage(message);
     }
   };

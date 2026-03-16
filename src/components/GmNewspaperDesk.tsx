@@ -8,11 +8,13 @@ import { useCurrentTurn, useGameStore } from "@/lib/gameStore";
 
 export function GmNewspaperDesk() {
   const router = useRouter();
-  const { state, currentUser, publishTurn } = useGameStore();
+  const { state, currentUser, publishTurn, generateLatestArchivedTurnSummaries } = useGameStore();
   const currentTurn = useCurrentTurn();
 
   const [inWorldDate, setInWorldDate] = useState(currentTurn?.inWorldDate ?? "");
   const [body, setBody] = useState("");
+  const [isGeneratingSummaries, setIsGeneratingSummaries] = useState(false);
+  const [summaryStatus, setSummaryStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (currentTurn) {
@@ -43,6 +45,24 @@ export function GmNewspaperDesk() {
     });
 
     setBody("");
+  };
+
+  const onGenerateLastTurnSummaries = async () => {
+    if (isGeneratingSummaries) {
+      return;
+    }
+    setSummaryStatus(null);
+    setIsGeneratingSummaries(true);
+    try {
+      const result = await generateLatestArchivedTurnSummaries();
+      if (!result.ok) {
+        setSummaryStatus(result.reason);
+        return;
+      }
+      setSummaryStatus(result.reason ?? "Summaries generated for the latest archived turn.");
+    } finally {
+      setIsGeneratingSummaries(false);
+    }
   };
 
   if (currentUser.role !== "gm") {
@@ -94,6 +114,10 @@ export function GmNewspaperDesk() {
               <div className="newspaperBodyRow">
                 <p className="muted">Newspaper text is inserted as the first message in each new GM ↔ player channel.</p>
               </div>
+              <button type="button" className="secondaryButton" onClick={() => void onGenerateLastTurnSummaries()} disabled={isGeneratingSummaries}>
+                {isGeneratingSummaries ? "Generating..." : "Generate Last Turn AI Summaries"}
+              </button>
+              {summaryStatus ? <p className="muted">{summaryStatus}</p> : null}
             </div>
           ) : (
             <p className="muted">No active turn.</p>

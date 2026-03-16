@@ -17,21 +17,63 @@ import {
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { getFirebase } from "@/lib/firebase";
 import { initialState } from "@/lib/mockData";
-import { type AIMessage, type GameState, type Message, type Reaction, type Thread, type Turn, type User } from "@/types/game";
+import {
+  type AIMessage,
+  type AITurnSummary,
+  type GameState,
+  type Message,
+  type Reaction,
+  type Thread,
+  type Turn,
+  type User
+} from "@/types/game";
 
 interface PublishTurnInput {
   inWorldDate: string;
   body: string;
 }
 
+interface TurnSummaryContextThread {
+  id: string;
+  title: string;
+  kind: Thread["kind"];
+  participants: Array<{ id: string; displayName: string; role: User["role"] }>;
+  messages: Array<{
+    id: string;
+    parentMessageId?: string;
+    authorId: string;
+    authorName: string;
+    authorRole: User["role"];
+    body: string;
+    createdAt: string;
+    reactions: Reaction[];
+  }>;
+}
+
+interface TurnSummaryRequest {
+  gameTitle: string;
+  player: { id: string; displayName: string };
+  turn: { id: string; number: number; inWorldDate: string };
+  threads: TurnSummaryContextThread[];
+}
+
+interface PlayerSummaryResult {
+  playerId: string;
+  ok: boolean;
+  usedFallback: boolean;
+  error?: string;
+}
+
 interface StoreContextValue {
   state: GameState;
   currentUser: User;
   addMessage: (threadId: string, authorId: string, body: string, parentMessageId?: string) => void;
+  editMessage: (messageId: string, userId: string, body: string) => { ok: true } | { ok: false; reason: string };
   addReaction: (messageId: string, userId: string, emoji: string) => void;
   deleteMessage: (messageId: string, userId: string) => { ok: true } | { ok: false; reason: string };
   addAIMessage: (userId: string, role: "user" | "assistant", body: string) => void;
   publishTurn: (input: PublishTurnInput) => void;
+  generateLatestArchivedTurnSummaries: () => Promise<{ ok: true; reason?: string } | { ok: false; reason: string }>;
   getThreadsForUser: (userId: string, turnId: string) => Thread[];
   getMessagesForThread: (threadId: string) => Message[];
   getTurnById: (turnId: string) => Turn | undefined;
@@ -66,6 +108,10 @@ function refs(db: Firestore) {
 
 function aiMessagesCol(db: Firestore, userId: string) {
   return collection(db, "games", GAME_ID, "aiConversations", userId, "messages");
+}
+
+function aiSummariesCol(db: Firestore, userId: string) {
+  return collection(db, "games", GAME_ID, "aiConversations", userId, "summaries");
 }
 
 async function ensureMembership(db: Firestore, firebaseUid: string, currentUser: User) {
@@ -183,6 +229,7 @@ function mapReactions(value: unknown): Reaction[] {
 
 function mapMessageFromDoc(messageId: string, data: Record<string, unknown>): Message {
   const parentMessageId = typeof data.parentMessageId === "string" ? data.parentMessageId : undefined;
+  const editedAt = "editedAt" in data ? asIsoString(data.editedAt) : undefined;
 
   return {
     id: messageId,
@@ -191,6 +238,7 @@ function mapMessageFromDoc(messageId: string, data: Record<string, unknown>): Me
     authorId: typeof data.authorId === "string" ? data.authorId : "",
     body: typeof data.body === "string" ? data.body : "",
     createdAt: asIsoString(data.createdAt),
+    editedAt,
     reactions: mapReactions(data.reactions)
   };
 }
@@ -202,6 +250,18 @@ function mapAIMessageFromDoc(messageId: string, userId: string, data: Record<str
     userId,
     role,
     body: typeof data.body === "string" ? data.body : "",
+    createdAt: asIsoString(data.createdAt)
+  };
+}
+
+function mapAITurnSummaryFromDoc(summaryId: string, userId: string, data: Record<string, unknown>): AITurnSummary {
+  return {
+    id: summaryId,
+    userId,
+    turnId: typeof data.turnId === "string" ? data.turnId : "",
+    turnNumber: typeof data.turnNumber === "number" ? data.turnNumber : 0,
+    inWorldDate: typeof data.inWorldDate === "string" ? data.inWorldDate : "",
+    summary: typeof data.summary === "string" ? data.summary : "",
     createdAt: asIsoString(data.createdAt)
   };
 }
@@ -333,6 +393,21 @@ export function GameStoreProvider({
           }
         )
       );
+
+      unsubscribes.push(
+        onSnapshot(
+          query(aiSummariesCol(db, currentUser.id), orderBy("turnNumber", "asc")),
+          (snapshot) => {
+            const aiTurnSummaries = snapshot.docs.map((snap) =>
+              mapAITurnSummaryFromDoc(snap.id, currentUser.id, snap.data() as Record<string, unknown>)
+            );
+            setState((prev) => ({ ...prev, aiTurnSummaries }));
+          },
+          (error) => {
+            console.error("AI turn summaries listener error", error);
+          }
+        )
+      );
     }
 
     void startRealtime();
@@ -388,6 +463,61 @@ export function GameStoreProvider({
     void setDoc(messageRef, payload).catch((error) => {
       console.error("Failed to send message", error);
     });
+  };
+
+  const editMessage = (messageId: string, userId: string, body: string): { ok: true } | { ok: false; reason: string } => {
+    const trimmed = body.trim();
+    if (!trimmed) {
+      return { ok: false, reason: "Message cannot be empty." };
+    }
+
+    const message = state.messages.find((entry) => entry.id === messageId);
+    if (!message) {
+      return { ok: false, reason: "Message not found." };
+    }
+
+    if (message.authorId !== userId) {
+      return { ok: false, reason: "You can only edit your own messages." };
+    }
+
+    if (message.body.trim() === trimmed) {
+      return { ok: true };
+    }
+
+    const thread = state.threads.find((entry) => entry.id === message.threadId);
+    const activeTurn = state.turns.find((turn) => turn.status === "active");
+    if (!thread || !activeTurn || thread.turnId !== activeTurn.id || !thread.participantIds.includes(userId)) {
+      return { ok: false, reason: "Only messages in the active turn can be edited." };
+    }
+
+    let db: Firestore;
+    try {
+      db = getFirebase().db;
+    } catch {
+      return { ok: false, reason: "Firestore unavailable." };
+    }
+
+    const { messagesCol } = refs(db);
+    const messageRef = doc(messagesCol, messageId);
+
+    void runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(messageRef);
+      if (!snapshot.exists()) {
+        return;
+      }
+      const data = snapshot.data() as Record<string, unknown>;
+      if (typeof data.authorId !== "string" || data.authorId !== userId) {
+        return;
+      }
+      transaction.update(messageRef, {
+        body: trimmed,
+        editedAt: new Date().toISOString()
+      });
+    }).catch((error) => {
+      console.error("Failed to edit message", error);
+    });
+
+    return { ok: true };
   };
 
   const addReaction = (messageId: string, userId: string, emoji: string) => {
@@ -523,6 +653,234 @@ export function GameStoreProvider({
     });
   };
 
+  const buildTurnSummaryContext = (playerId: string, turn: Turn): TurnSummaryRequest | null => {
+    const player = state.users.find((entry) => entry.id === playerId);
+    if (!player) {
+      return null;
+    }
+
+    const threads = state.threads
+      .filter((thread) => thread.turnId === turn.id && thread.participantIds.includes(playerId))
+      .map((thread) => {
+        const participants = thread.participantIds.map((participantId) => {
+          const participant = state.users.find((entry) => entry.id === participantId);
+          return {
+            id: participantId,
+            displayName: participant?.displayName ?? participantId,
+            role: participant?.role ?? "player"
+          };
+        });
+
+        const messages = state.messages
+          .filter((message) => message.threadId === thread.id)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+          .map((message) => {
+            const author = state.users.find((entry) => entry.id === message.authorId);
+            return {
+              id: message.id,
+              parentMessageId: message.parentMessageId,
+              authorId: message.authorId,
+              authorName: author?.displayName ?? message.authorId,
+              authorRole: author?.role ?? "player",
+              body: message.body,
+              createdAt: message.createdAt,
+              reactions: message.reactions
+            };
+          });
+
+        return {
+          id: thread.id,
+          title: thread.title,
+          kind: thread.kind,
+          participants,
+          messages
+        };
+      });
+
+    return {
+      gameTitle: state.game.title,
+      player: {
+        id: player.id,
+        displayName: player.displayName
+      },
+      turn: {
+        id: turn.id,
+        number: turn.number,
+        inWorldDate: turn.inWorldDate
+      },
+      threads
+    };
+  };
+
+  const buildFallbackTurnSummary = (context: TurnSummaryRequest): string => {
+    const totalMessages = context.threads.reduce((count, thread) => count + thread.messages.length, 0);
+    const authoredMessages = context.threads.reduce(
+      (count, thread) => count + thread.messages.filter((message) => message.authorId === context.player.id).length,
+      0
+    );
+    const latestMessage = context.threads
+      .flatMap((thread) => thread.messages)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+
+    const latestThreadTitle = latestMessage
+      ? context.threads.find((thread) => thread.messages.some((message) => message.id === latestMessage.id))?.title ??
+        "Active channels"
+      : "Active channels";
+    const latestSnippet = latestMessage ? latestMessage.body.trim().replace(/\s+/g, " ").slice(0, 220) : "";
+
+    return [
+      "## What Happened",
+      `Turn ${context.turn.number} (${context.turn.inWorldDate}) covered ${context.threads.length} visible channels and ${totalMessages} messages for ${context.player.displayName}.`,
+      "",
+      "## Strategy Read",
+      `${context.player.displayName} authored ${authoredMessages} messages. Priorities should be inferred from channel choice, reaction patterns, and final messages in each thread.`,
+      "",
+      "## Commitments And Constraints",
+      "Track promises made to GM and other players in visible threads. Preserve consistency with prior turn summaries and keep plausible deniability where useful.",
+      "",
+      "## Priorities For Next Turn",
+      latestSnippet
+        ? `Revisit latest development from ${latestThreadTitle}: "${latestSnippet}". Build a response plan with one diplomatic action, one information action, and one contingency.`
+        : "Open next turn by clarifying immediate objectives with GM, then coordinate discreetly with relevant player channels."
+    ].join("\n");
+  };
+
+  const generateTurnSummaryForPlayer = async (
+    db: Firestore,
+    playerId: string,
+    turn: Turn,
+    generatedAt: string
+  ): Promise<PlayerSummaryResult> => {
+    const context = buildTurnSummaryContext(playerId, turn);
+    if (!context) {
+      return { playerId, ok: false, usedFallback: false, error: "No turn context available." };
+    }
+
+    let response: Response;
+    try {
+      response = await fetch("/api/ai/turn-summary", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(context)
+      });
+    } catch (error) {
+      console.error(`Failed requesting turn summary for ${playerId}`, error);
+      const fallback = buildFallbackTurnSummary(context);
+      try {
+        await setDoc(
+          doc(aiSummariesCol(db, playerId), turn.id),
+          {
+            userId: playerId,
+            turnId: turn.id,
+            turnNumber: turn.number,
+            inWorldDate: turn.inWorldDate,
+            summary: fallback,
+            model: "fallback-local",
+            createdAt: generatedAt
+          },
+          { merge: true }
+        );
+        return { playerId, ok: true, usedFallback: true };
+      } catch (writeError) {
+        return { playerId, ok: false, usedFallback: false, error: String(writeError) };
+      }
+    }
+
+    let payload: { summary?: string; model?: string; error?: string } = {};
+    try {
+      payload = (await response.json()) as { summary?: string; model?: string; error?: string };
+    } catch (error) {
+      console.error(`Invalid summary response JSON for ${playerId}`, error);
+    }
+
+    const useFallback = !response.ok || !payload.summary?.trim();
+    const summaryBody = useFallback ? buildFallbackTurnSummary(context) : payload.summary!.trim();
+    const modelName = useFallback ? "fallback-local" : payload.model ?? null;
+
+    const summaryRef = doc(aiSummariesCol(db, playerId), turn.id);
+    try {
+      await setDoc(
+        summaryRef,
+        {
+          userId: playerId,
+          turnId: turn.id,
+          turnNumber: turn.number,
+          inWorldDate: turn.inWorldDate,
+          summary: summaryBody,
+          model: modelName,
+          createdAt: generatedAt
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      return { playerId, ok: false, usedFallback: false, error: String(error) };
+    }
+
+    if (useFallback) {
+      console.warn(`Turn summary AI fallback used for ${playerId}`, payload.error ?? response.statusText);
+    }
+    return { playerId, ok: true, usedFallback: useFallback };
+  };
+
+  const generateTurnSummariesForArchivedTurn = async (
+    db: Firestore,
+    turn: Turn,
+    playerIds: string[],
+    generatedAt: string
+  ): Promise<PlayerSummaryResult[]> => {
+    const tasks = playerIds.map((playerId) => generateTurnSummaryForPlayer(db, playerId, turn, generatedAt));
+    return Promise.all(tasks);
+  };
+
+  const generateLatestArchivedTurnSummaries = async (): Promise<
+    { ok: true; reason?: string } | { ok: false; reason: string }
+  > => {
+    if (currentUser.role !== "gm") {
+      return { ok: false, reason: "Only GM can generate turn summaries." };
+    }
+
+    const latestArchivedTurn = state.turns
+      .filter((turn) => turn.status === "archived")
+      .sort((a, b) => b.number - a.number)[0];
+
+    if (!latestArchivedTurn) {
+      return { ok: false, reason: "No archived turn found yet." };
+    }
+
+    const playerIds = state.users.filter((user) => user.role === "player").map((user) => user.id);
+    if (!playerIds.length) {
+      return { ok: false, reason: "No players found to summarize." };
+    }
+
+    let db: Firestore;
+    try {
+      db = getFirebase().db;
+    } catch {
+      return { ok: false, reason: "Firestore unavailable." };
+    }
+
+    const results = await generateTurnSummariesForArchivedTurn(db, latestArchivedTurn, playerIds, new Date().toISOString());
+    const failed = results.filter((result) => !result.ok);
+    if (failed.length) {
+      const names = failed
+        .map((result) => state.users.find((user) => user.id === result.playerId)?.displayName ?? result.playerId)
+        .join(", ");
+      return { ok: false, reason: `Failed for: ${names}. Check console logs.` };
+    }
+
+    const fallbackCount = results.filter((result) => result.usedFallback).length;
+    if (fallbackCount > 0) {
+      return {
+        ok: true,
+        reason: `Summaries saved for all players (${fallbackCount} used fallback because AI generation failed).`
+      };
+    }
+
+    return { ok: true, reason: "Summaries generated for all players." };
+  };
+
   const publishTurn = ({ inWorldDate, body }: PublishTurnInput) => {
     const activeTurn = state.turns.find((turn) => turn.status === "active");
     const gmId = state.users.find((user) => user.role === "gm")?.id;
@@ -618,9 +976,19 @@ export function GameStoreProvider({
 
     batch.update(gameRef, { activeTurnId: newTurnId });
 
-    void batch.commit().catch((error) => {
-      console.error("Failed to publish turn", error);
-    });
+    void batch
+      .commit()
+      .then(() => {
+        void generateTurnSummariesForArchivedTurn(db, activeTurn, playerIds, nowIso).then((results) => {
+          const failed = results.filter((result) => !result.ok);
+          if (failed.length) {
+            console.error("One or more turn summaries failed after publish", failed);
+          }
+        });
+      })
+      .catch((error) => {
+        console.error("Failed to publish turn", error);
+      });
   };
 
   const getThreadsForUser = (userId: string, turnId: string) =>
@@ -637,10 +1005,12 @@ export function GameStoreProvider({
     state,
     currentUser,
     addMessage,
+    editMessage,
     addReaction,
     deleteMessage,
     addAIMessage,
     publishTurn,
+    generateLatestArchivedTurnSummaries,
     getThreadsForUser,
     getMessagesForThread,
     getTurnById

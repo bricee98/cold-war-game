@@ -45,6 +45,7 @@ export interface Message {
   authorId: string;
   body: string;
   createdAt: string;
+  editedAt?: string;
   reactions: Reaction[];
 }
 
@@ -56,6 +57,16 @@ export interface AIMessage {
   createdAt: string;
 }
 
+export interface AITurnSummary {
+  id: string;
+  userId: string;
+  turnId: string;
+  turnNumber: number;
+  inWorldDate: string;
+  summary: string;
+  createdAt: string;
+}
+
 export interface GameState {
   game: Game;
   users: User[];
@@ -63,4 +74,5 @@ export interface GameState {
   threads: Thread[];
   messages: Message[];
   aiMessages: AIMessage[];
+  aiTurnSummaries: AITurnSummary[];
 }

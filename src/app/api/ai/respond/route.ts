@@ -18,6 +18,22 @@ function parseReasoningEffort(value: string | undefined): ReasoningEffort {
   return "high";
 }
 
+function parseMaxOutputTokens(value: string | undefined): number {
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
+  if (Number.isNaN(parsed)) {
+    return 2000;
+  }
+  return Math.min(Math.max(parsed, 300), 4000);
+}
+
+function parseMaxContinuations(value: string | undefined): number {
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
+  if (Number.isNaN(parsed)) {
+    return 3;
+  }
+  return Math.min(Math.max(parsed, 0), 6);
+}
+
 function parsePageContext(value: unknown): string {
   if (!value || typeof value !== "object") {
     return "";
@@ -25,7 +41,7 @@ function parsePageContext(value: unknown): string {
 
   try {
     const json = JSON.stringify(value, null, 2);
-    return json.slice(0, 16000);
+    return json.slice(0, 52000);
   } catch {
     return "";
   }
@@ -98,6 +114,24 @@ function extractReplyText(payload: unknown): string {
   return chunks.join("\n\n").trim();
 }
 
+function wasTruncatedByMaxTokens(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+
+  const status = "status" in payload ? payload.status : null;
+  if (status !== "incomplete") {
+    return false;
+  }
+
+  const details = "incomplete_details" in payload ? payload.incomplete_details : null;
+  if (!details || typeof details !== "object") {
+    return false;
+  }
+  const reason = "reason" in details ? details.reason : null;
+  return reason === "max_output_tokens";
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -130,9 +164,11 @@ export async function POST(request: Request) {
   const pageContext = parsePageContext(maybePageContext);
   const model = process.env.OPENAI_MODEL ?? "gpt-5.4";
   const reasoningEffort = parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT);
+  const maxOutputTokens = parseMaxOutputTokens(process.env.OPENAI_MAX_OUTPUT_TOKENS);
+  const maxContinuations = parseMaxContinuations(process.env.OPENAI_MAX_CONTINUATIONS);
 
   const systemPrompt =
-    "You are a private Cold War roleplay strategy assistant. Keep replies concise, actionable, and in-world when relevant. Do not reveal hidden information. Use PAGE_CONTEXT as the source of truth for what the player can currently see.";
+    "You are a private Cold War roleplay strategy assistant. Keep replies concise, actionable, and in-world when relevant. Do not reveal hidden information. Use PAGE_CONTEXT as the source of truth for what the player can currently see. Prefer `currentTurnRecentMessages` for latest developments and `selectedChannelMessages` for thread-level detail.";
 
   const input = [
     {
@@ -173,7 +209,7 @@ export async function POST(request: Request) {
   const payload: Record<string, unknown> = {
     model,
     input,
-    max_output_tokens: 600
+    max_output_tokens: maxOutputTokens
   };
   const supportsReasoning = model.startsWith("gpt-5") || model.startsWith("o");
   if (supportsReasoning && reasoningEffort !== "none") {
@@ -211,9 +247,61 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON from OpenAI API." }, { status: 502 });
   }
 
-  const reply = extractReplyText(responseJson);
+  let reply = extractReplyText(responseJson);
   if (!reply) {
     return NextResponse.json({ error: "AI returned no text response." }, { status: 502 });
+  }
+
+  let truncated = wasTruncatedByMaxTokens(responseJson);
+  for (let attempt = 0; truncated && attempt < maxContinuations; attempt += 1) {
+    const continuationPayload: Record<string, unknown> = {
+      model,
+      input: [
+        ...input,
+        {
+          role: "assistant",
+          content: [{ type: "output_text", text: reply }]
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: "Continue exactly where you left off. Do not repeat prior text. Finish the answer."
+            }
+          ]
+        }
+      ],
+      max_output_tokens: maxOutputTokens
+    };
+    if (supportsReasoning && reasoningEffort !== "none") {
+      continuationPayload.reasoning = { effort: reasoningEffort };
+    }
+
+    try {
+      const continuationResponse = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(continuationPayload)
+      });
+
+      if (!continuationResponse.ok) {
+        break;
+      }
+
+      const continuationJson = (await continuationResponse.json()) as unknown;
+      const continuationText = extractReplyText(continuationJson);
+      if (!continuationText) {
+        break;
+      }
+      reply = `${reply}\n\n${continuationText}`;
+      truncated = wasTruncatedByMaxTokens(continuationJson);
+    } catch {
+      break;
+    }
   }
 
   return NextResponse.json({ reply });

@@ -129,5 +129,6 @@ export const initialState: GameState = {
       body: "I can help you evaluate next-turn diplomatic and military options.",
       createdAt: now.toISOString()
     }
-  ]
+  ],
+  aiTurnSummaries: []
 };

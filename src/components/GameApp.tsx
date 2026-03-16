@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { CopyButton } from "@/components/CopyButton";
 import { MarkdownText } from "@/components/MarkdownText";
 import { useAuth } from "@/lib/auth";
@@ -57,7 +57,7 @@ interface AIPageContext {
     kind: Thread["kind"];
     participantIds: string[];
   }>;
-  visibleMessages: Array<{
+  selectedChannelMessages: Array<{
     id: string;
     parentMessageId?: string;
     authorId: string;
@@ -65,11 +65,39 @@ interface AIPageContext {
     authorRole: Role;
     createdAt: string;
     body: string;
+    channelId: string;
+    channelTitle: string;
+    channelKind: Thread["kind"];
+    channelParticipants: string[];
     reactions: Array<{
       emoji: string;
       userId: string;
       role: Role;
     }>;
+  }>;
+  currentTurnRecentMessages: Array<{
+    id: string;
+    parentMessageId?: string;
+    authorId: string;
+    authorName: string;
+    authorRole: Role;
+    createdAt: string;
+    body: string;
+    channelId: string;
+    channelTitle: string;
+    channelKind: Thread["kind"];
+    channelParticipants: string[];
+    reactions: Array<{
+      emoji: string;
+      userId: string;
+      role: Role;
+    }>;
+  }>;
+  strategicSummaries: Array<{
+    turnId: string;
+    turnNumber: number;
+    inWorldDate: string;
+    summary: string;
   }>;
 }
 
@@ -111,6 +139,14 @@ function ReactionGlyph({ symbol }: { symbol: string }) {
     );
   }
   return <span>{symbol}</span>;
+}
+
+function compactForAI(value: string, maxLength = 560): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength)}...`;
 }
 
 function TrashGlyph() {
@@ -213,6 +249,7 @@ function MessageCard({
   isReadOnly,
   currentUserId,
   roleByUserId,
+  onEdit,
   onReact,
   onReply,
   onDelete
@@ -222,6 +259,7 @@ function MessageCard({
   isReadOnly: boolean;
   currentUserId: string;
   roleByUserId: Map<string, Role>;
+  onEdit: (messageId: string, body: string) => void;
   onReact: (messageId: string, emoji: string) => void;
   onReply: (parentMessageId: string, body: string) => void;
   onDelete: (messageId: string) => void;
@@ -230,6 +268,8 @@ function MessageCard({
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [openReplyPickerId, setOpenReplyPickerId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
 
   const reactionBuckets = useMemo(
     () => buildReactionBuckets(message, currentUserId, roleByUserId),
@@ -248,7 +288,8 @@ function MessageCard({
   };
 
   const reactedByCurrentUser = message.reactions.some((reaction) => reaction.userId === currentUserId);
-  const messageNeedsAttention = message.authorId !== currentUserId && !reactedByCurrentUser;
+  const repliedByCurrentUser = replies.some((reply) => reply.authorId === currentUserId);
+  const messageNeedsAttention = message.authorId !== currentUserId && !reactedByCurrentUser && !repliedByCurrentUser;
 
   const onReplyKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!event.shiftKey && event.key === "Enter") {
@@ -273,6 +314,42 @@ function MessageCard({
     onDelete(messageId);
   };
 
+  const beginEditing = (entry: Message) => {
+    if (isReadOnly || entry.authorId !== currentUserId) {
+      return;
+    }
+    setEditingMessageId(entry.id);
+    setEditDraft(entry.body);
+    if (entry.parentMessageId) {
+      setShowThread(true);
+    }
+  };
+
+  const cancelEditing = () => {
+    setEditingMessageId(null);
+    setEditDraft("");
+  };
+
+  const submitEdit = (messageId: string) => {
+    const trimmed = editDraft.trim();
+    if (!trimmed || isReadOnly) {
+      return;
+    }
+    onEdit(messageId, trimmed);
+    setEditingMessageId(null);
+    setEditDraft("");
+  };
+
+  const onEditKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>, targetId: string) => {
+    if (!event.shiftKey && event.key === "Enter") {
+      event.preventDefault();
+      submitEdit(targetId);
+    }
+  };
+
+  const getTimestampLabel = (entry: Message) =>
+    `${formatIsoDateTime(entry.createdAt)}${entry.editedAt ? " · edited" : ""}`;
+
   return (
     <article
       key={message.id}
@@ -281,15 +358,48 @@ function MessageCard({
       }`}
     >
       <div className="messageBodyRow">
-        <MarkdownText content={message.body} className="messageBodyText markdownContent" />
-        <CopyButton text={message.body} ariaLabel="Copy message text" />
+        {editingMessageId === message.id ? (
+          <div className="inlineEdit">
+            <textarea
+              value={editDraft}
+              onChange={(event) => setEditDraft(event.target.value)}
+              onKeyDown={(event) => onEditKeyDown(event, message.id)}
+              rows={3}
+              autoFocus
+            />
+            <div className="inlineEditActions">
+              <button type="button" onClick={() => submitEdit(message.id)} disabled={!editDraft.trim()}>
+                Save
+              </button>
+              <button type="button" className="secondaryButton" onClick={cancelEditing}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <MarkdownText content={message.body} className="messageBodyText markdownContent" />
+            <CopyButton text={message.body} ariaLabel="Copy message text" />
+          </>
+        )}
       </div>
       <footer>
-        <small>{formatIsoDateTime(message.createdAt)}</small>
+        <small>{getTimestampLabel(message)}</small>
         <div className="messageActions">
           <button type="button" className="threadToggle" onClick={() => setShowThread((prev) => !prev)}>
             {replies.length ? `↩ (${replies.length})` : "↩"}
           </button>
+          {message.authorId === currentUserId && !isReadOnly ? (
+            <button
+              type="button"
+              className="threadToggle editToggle"
+              onClick={() => beginEditing(message)}
+              aria-label="Edit message"
+              title="Edit message"
+            >
+              Edit
+            </button>
+          ) : null}
           {message.authorId === currentUserId && !isReadOnly ? (
             <button
               type="button"
@@ -359,9 +469,13 @@ function MessageCard({
               {replies.map((reply) => (
                 (() => {
                   const replyReactionBuckets = buildReactionBuckets(reply, currentUserId, roleByUserId);
+                  const repliedAfterThisReply = replies.some(
+                    (entry) => entry.authorId === currentUserId && entry.createdAt > reply.createdAt
+                  );
                   const replyNeedsAttention =
                     reply.authorId !== currentUserId &&
-                    !reply.reactions.some((reaction) => reaction.userId === currentUserId);
+                    !reply.reactions.some((reaction) => reaction.userId === currentUserId) &&
+                    !repliedAfterThisReply;
 
                   return (
                     <div
@@ -371,12 +485,45 @@ function MessageCard({
                       }`}
                     >
                       <div className="replyBodyRow">
-                        <MarkdownText content={reply.body} className="replyBodyText markdownContent" />
-                        <CopyButton text={reply.body} ariaLabel="Copy thread reply text" />
+                        {editingMessageId === reply.id ? (
+                          <div className="inlineEdit">
+                            <textarea
+                              value={editDraft}
+                              onChange={(event) => setEditDraft(event.target.value)}
+                              onKeyDown={(event) => onEditKeyDown(event, reply.id)}
+                              rows={2}
+                              autoFocus
+                            />
+                            <div className="inlineEditActions">
+                              <button type="button" onClick={() => submitEdit(reply.id)} disabled={!editDraft.trim()}>
+                                Save
+                              </button>
+                              <button type="button" className="secondaryButton" onClick={cancelEditing}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <MarkdownText content={reply.body} className="replyBodyText markdownContent" />
+                            <CopyButton text={reply.body} ariaLabel="Copy thread reply text" />
+                          </>
+                        )}
                       </div>
                       <footer className="replyFooter">
-                        <small>{formatIsoDateTime(reply.createdAt)}</small>
+                        <small>{getTimestampLabel(reply)}</small>
                         <div className="messageActions">
+                          {reply.authorId === currentUserId && !isReadOnly ? (
+                            <button
+                              type="button"
+                              className="threadToggle editToggle"
+                              onClick={() => beginEditing(reply)}
+                              aria-label="Edit reply"
+                              title="Edit reply"
+                            >
+                              Edit
+                            </button>
+                          ) : null}
                           {reply.authorId === currentUserId && !isReadOnly ? (
                             <button
                               type="button"
@@ -475,6 +622,7 @@ function MessageFeed({
   isReadOnly,
   currentUserId,
   roleByUserId,
+  onEdit,
   onReact,
   onReply,
   onDelete
@@ -483,6 +631,7 @@ function MessageFeed({
   isReadOnly: boolean;
   currentUserId: string;
   roleByUserId: Map<string, Role>;
+  onEdit: (messageId: string, body: string) => void;
   onReact: (messageId: string, emoji: string) => void;
   onReply: (parentMessageId: string, body: string) => void;
   onDelete: (messageId: string) => void;
@@ -512,6 +661,7 @@ function MessageFeed({
           isReadOnly={isReadOnly}
           currentUserId={currentUserId}
           roleByUserId={roleByUserId}
+          onEdit={onEdit}
           onReact={onReact}
           onReply={onReply}
           onDelete={onDelete}
@@ -527,11 +677,27 @@ function AIPrivatePanel({ userId, pageContext }: { userId: string; pageContext: 
   const [draft, setDraft] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const aiMessagesRef = useRef<HTMLDivElement | null>(null);
+  const aiBottomRef = useRef<HTMLDivElement | null>(null);
 
   const aiMessages = state.aiMessages.filter((msg) => msg.userId === userId);
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      aiBottomRef.current?.scrollIntoView({ block: "end" });
+      const container = aiMessagesRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [aiMessages.length, isThinking, isOpen]);
+
+  const submitAIMessage = async () => {
     const trimmed = draft.trim();
     if (!trimmed || isThinking) {
       return;
@@ -575,27 +741,55 @@ function AIPrivatePanel({ userId, pageContext }: { userId: string; pageContext: 
     }
   };
 
+  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void submitAIMessage();
+  };
+
+  const onAIKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!event.shiftKey && event.key === "Enter") {
+      event.preventDefault();
+      void submitAIMessage();
+    }
+  };
+
   return (
-    <details className="panel aiPanel">
+    <details className="panel aiPanel" onToggle={(event) => setIsOpen((event.currentTarget as HTMLDetailsElement).open)}>
       <summary>Private AI Assistant</summary>
       <p className="muted">Only visible to this player. GM cannot view this panel.</p>
-      <div className="aiMessages">
+      <div className="aiMessages" ref={aiMessagesRef}>
         {aiMessages.map((msg) => (
           <div key={msg.id} className={msg.role === "assistant" ? "aiMessage assistant" : "aiMessage user"}>
             <strong>{msg.role === "assistant" ? "AI" : "You"}</strong>
-            <p>{msg.body}</p>
+            <MarkdownText content={msg.body} className="markdownContent" />
           </div>
         ))}
+        {isThinking ? (
+          <div className="aiMessage assistant pending" aria-live="polite">
+            <strong>AI</strong>
+            <p className="thinkingLine">
+              Thinking
+              <span className="thinkingDots" aria-hidden="true">
+                <span>.</span>
+                <span>.</span>
+                <span>.</span>
+              </span>
+            </p>
+          </div>
+        ) : null}
+        <div ref={aiBottomRef} />
       </div>
       {requestError ? <p className="muted">Last AI error: {requestError}</p> : null}
-      <form onSubmit={onSubmit} className="compose">
-        <input
+      <form onSubmit={onSubmit} className="compose aiCompose">
+        <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask your private strategy question"
+          onKeyDown={onAIKeyDown}
+          rows={2}
+          placeholder="Ask your private strategy question (Enter = send, Shift+Enter = newline)"
         />
         <button type="submit" disabled={!draft.trim() || isThinking}>
-          {isThinking ? "Thinking..." : "Send"}
+          Send
         </button>
       </form>
     </details>
@@ -608,6 +802,7 @@ export function GameApp() {
     state,
     currentUser,
     addMessage,
+    editMessage,
     addReaction,
     deleteMessage,
     getThreadsForUser,
@@ -649,6 +844,8 @@ export function GameApp() {
   const isReadOnlyTurn = turn?.status !== "active";
   const roleByUserId = useMemo(() => new Map(state.users.map((user) => [user.id, user.role])), [state.users]);
   const userById = useMemo(() => new Map(state.users.map((entry) => [entry.id, entry])), [state.users]);
+  const channelById = useMemo(() => new Map(channels.map((entry) => [entry.id, entry])), [channels]);
+  const channelIdSet = useMemo(() => new Set(channels.map((entry) => entry.id)), [channels]);
 
   const aiPageContext = useMemo<AIPageContext>(
     () => ({
@@ -682,8 +879,9 @@ export function GameApp() {
         kind: entry.kind,
         participantIds: entry.participantIds
       })),
-      visibleMessages: messages.slice(-120).map((entry) => {
+      selectedChannelMessages: messages.slice(-64).map((entry) => {
         const author = userById.get(entry.authorId);
+        const channel = channelById.get(entry.threadId);
         return {
           id: entry.id,
           parentMessageId: entry.parentMessageId,
@@ -691,16 +889,72 @@ export function GameApp() {
           authorName: author?.displayName ?? entry.authorId,
           authorRole: author?.role ?? "player",
           createdAt: entry.createdAt,
-          body: entry.body,
+          body: compactForAI(entry.body, 700),
+          channelId: channel?.id ?? entry.threadId,
+          channelTitle: channel?.title ?? entry.threadId,
+          channelKind: channel?.kind ?? "gm_player",
+          channelParticipants: channel?.participantIds ?? [],
           reactions: entry.reactions.map((reaction) => ({
             emoji: reaction.emoji,
             userId: reaction.userId,
             role: roleByUserId.get(reaction.userId) ?? "player"
           }))
         };
-      })
+      }),
+      currentTurnRecentMessages: state.messages
+        .filter((entry) => channelIdSet.has(entry.threadId))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 140)
+        .map((entry) => {
+          const author = userById.get(entry.authorId);
+          const channel = channelById.get(entry.threadId);
+          return {
+            id: entry.id,
+            parentMessageId: entry.parentMessageId,
+            authorId: entry.authorId,
+            authorName: author?.displayName ?? entry.authorId,
+            authorRole: author?.role ?? "player",
+            createdAt: entry.createdAt,
+            body: compactForAI(entry.body, 420),
+            channelId: channel?.id ?? entry.threadId,
+            channelTitle: channel?.title ?? entry.threadId,
+            channelKind: channel?.kind ?? "gm_player",
+            channelParticipants: channel?.participantIds ?? [],
+            reactions: entry.reactions.map((reaction) => ({
+              emoji: reaction.emoji,
+              userId: reaction.userId,
+              role: roleByUserId.get(reaction.userId) ?? "player"
+            }))
+          };
+        }),
+      strategicSummaries: state.aiTurnSummaries
+        .slice()
+        .sort((a, b) => b.turnNumber - a.turnNumber)
+        .slice(0, 12)
+        .map((entry) => ({
+          turnId: entry.turnId,
+          turnNumber: entry.turnNumber,
+          inWorldDate: entry.inWorldDate,
+          summary: entry.summary
+        }))
     }),
-    [activeChannelId, channels, currentUser.displayName, currentUser.id, currentUser.role, messages, roleByUserId, state.game.title, state.turns, turn, userById]
+    [
+      activeChannelId,
+      channelById,
+      channelIdSet,
+      channels,
+      currentUser.displayName,
+      currentUser.id,
+      currentUser.role,
+      messages,
+      roleByUserId,
+      state.aiTurnSummaries,
+      state.game.title,
+      state.messages,
+      state.turns,
+      turn,
+      userById
+    ]
   );
 
   const [draft, setDraft] = useState("");
@@ -738,6 +992,13 @@ export function GameApp() {
 
   const deleteOwnMessage = (messageId: string) => {
     const result = deleteMessage(messageId, currentUser.id);
+    if (!result.ok) {
+      window.alert(result.reason);
+    }
+  };
+
+  const editOwnMessage = (messageId: string, body: string) => {
+    const result = editMessage(messageId, currentUser.id, body);
     if (!result.ok) {
       window.alert(result.reason);
     }
@@ -790,6 +1051,7 @@ export function GameApp() {
                   messages={messages}
                   isReadOnly={isReadOnlyTurn}
                   roleByUserId={roleByUserId}
+                  onEdit={editOwnMessage}
                   onReact={(messageId, emoji) => addReaction(messageId, currentUser.id, emoji)}
                   onReply={replyInThread}
                   onDelete={deleteOwnMessage}

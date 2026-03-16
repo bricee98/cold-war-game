@@ -35,7 +35,9 @@ npm run dev:poll
 - Signed-in accounts map to `GM`, `USA`, `USSR`, or `Finland` by env-configured email/UID rules.
 - Turns, channels, messages, replies, reactions, and newspapers are persisted in Firestore.
 - Private AI chats are persisted in Firestore and survive refresh/login.
+- On publish, the app auto-generates a private per-player turn summary for long-term AI planning context.
 - GM can navigate to `/gm` to publish newspaper updates that auto-advance the turn.
+- GM desk includes a one-click action to regenerate summaries for the latest archived turn.
 - Turns store date/state only (no title or description fields).
 - The first message in each new `GM ↔ player` channel is the newspaper body for that turn.
 - Channel selection is a compact control above the message feed.
@@ -55,7 +57,8 @@ npm run dev:poll
 - `games/{gameId}/turns/{turnId}`
 - `games/{gameId}/threads/{threadId}`
 - `games/{gameId}/messages/{messageId}`
-- `games/{gameId}/aiConversations/{conversationId}`
+- `games/{gameId}/aiConversations/{userId}/messages/{messageId}`
+- `games/{gameId}/aiConversations/{userId}/summaries/{turnId}`
 
 3. Keep turn lock server-side with security rules + Cloud Function for `publishTurn`.
 4. Keep AI private by user-scoped docs and backend checks.
@@ -70,10 +73,11 @@ npm run dev:poll
 - `firestore.rules`: starter access-control draft.
 - `.env.example`: Firebase env vars.
 - `src/app/api/ai/respond/route.ts`: server-side AI proxy for private assistant replies.
+- `src/app/api/ai/turn-summary/route.ts`: server-side turn-summary generator per player.
 
 ## Notes
 
 - Configure role mapping values in `.env.local` based on `.env.example` before first login.
 - Create a Firestore Database in Firebase Console before first app run.
 - `firestore.rules` is a starter draft; validate and refine with the Firebase emulator before production.
-- Add `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` / `OPENAI_REASONING_EFFORT`) to `.env.local` for live AI replies.
+- Add `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` / `OPENAI_SUMMARY_MODEL` / `OPENAI_REASONING_EFFORT` / `OPENAI_MAX_OUTPUT_TOKENS` / `OPENAI_MAX_CONTINUATIONS`) to `.env.local` for live AI replies and turn summaries.

@@ -1,11 +1,15 @@
 :root {
-  --bg: #f2efe6;
-  --paper: #fffdfa;
-  --ink: #1f2328;
-  --muted: #5f6368;
-  --border: #d2c5ad;
-  --accent: #a1372d;
-  --accent-2: #1d4f78;
+  --bg: #ece7d9;
+  --paper: #242f3e;
+  --paper-elev: #2a3648;
+  --ink: #eef2f8;
+  --muted: #b7c0cd;
+  --border: #4f5d72;
+  --accent: #9a5348;
+  --accent-2: #5f84b7;
+  --ok: #7ec79c;
+  --warn: #cfa86b;
+  --hero: #f2e7d1;
 }
 
 * {
@@ -16,7 +20,10 @@ body {
   margin: 0;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at top right, #eadfc8 0%, var(--bg) 52%);
+  background:
+    radial-gradient(circle at 8% 0%, #f6f0e0 0%, transparent 42%),
+    radial-gradient(circle at 86% 14%, #f3e9d4 0%, transparent 38%),
+    var(--bg);
 }
 
 h1,
@@ -35,7 +42,9 @@ select {
 
 .appShell {
   min-height: 100vh;
-  padding: 1rem;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 1.15rem 1.35rem 1.4rem;
   display: grid;
   gap: 1rem;
 }
@@ -57,6 +66,20 @@ select {
   display: flex;
   justify-content: space-between;
   align-items: end;
+  gap: 1rem;
+}
+
+.topBar h1 {
+  font-size: clamp(2rem, 3.6vw, 3.35rem);
+  line-height: 0.94;
+  color: var(--hero);
+  text-wrap: balance;
+}
+
+.topBar > div > .muted {
+  margin-top: 0.3rem;
+  max-width: 72ch;
+  font-size: 1.05rem;
 }
 
 .topBar.panel {
@@ -69,18 +92,23 @@ select {
 
 .contentGrid {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: minmax(260px, 320px) 1fr;
   gap: 1rem;
   min-height: 0;
 }
 
 .panel {
-  background: var(--paper);
+  background:
+    radial-gradient(circle at 88% -20%, rgba(160, 113, 95, 0.2), transparent 45%),
+    linear-gradient(180deg, var(--paper-elev) 0%, var(--paper) 68%);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 18px;
   padding: 0.9rem;
   display: grid;
   gap: 0.7rem;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 16px 30px rgba(14, 19, 27, 0.18);
 }
 
 .turnItems,
@@ -88,21 +116,30 @@ select {
 .messages,
 .aiMessages {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.72rem;
   overflow: auto;
 }
 
 .turnItem,
 .threadItem {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fbf8f2;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 90% -20%, rgba(163, 112, 95, 0.28), transparent 55%),
+    linear-gradient(180deg, #2f3b4d 0%, #273345 100%);
   color: var(--ink);
   text-align: left;
-  padding: 0.55rem;
+  padding: 0.72rem 0.76rem;
   display: grid;
-  gap: 0.15rem;
+  gap: 0.28rem;
   cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.turnItem:hover,
+.threadItem:hover {
+  transform: translateY(-1px);
+  border-color: #6b7a91;
 }
 
 .turnItem small,
@@ -112,16 +149,43 @@ select {
 
 .turnItem.active,
 .threadItem.active {
-  border-color: var(--accent-2);
-  background: #eef6fb;
+  border-color: #76a0d8;
+  background:
+    radial-gradient(circle at 90% -20%, rgba(115, 156, 211, 0.28), transparent 55%),
+    linear-gradient(180deg, #35465f 0%, #2e3f57 100%);
+  box-shadow: 0 0 0 1px rgba(118, 160, 216, 0.35) inset;
+}
+
+.turnItem strong {
+  font-size: 1.03rem;
+  letter-spacing: 0.01em;
+}
+
+.turnItem small {
+  width: fit-content;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(208, 217, 230, 0.2);
+  background: rgba(8, 12, 18, 0.22);
 }
 
 .turnList {
   align-content: start;
+  gap: 0.9rem;
+}
+
+.turnList h2 {
+  margin: 0;
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #dfcfb4;
 }
 
 .turnList .navButton {
-  margin-top: 0.4rem;
+  margin-top: 0.35rem;
+  width: 100%;
+  justify-content: center;
 }
 
 .muted {
@@ -132,7 +196,14 @@ select {
   display: grid;
   gap: 0.35rem;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 0.6rem;
+  padding-bottom: 0.72rem;
+}
+
+.turnHeader h2,
+.topBar h1,
+.authPanel h1 {
+  font-family: "Iowan Old Style", "Baskerville", "Times New Roman", serif;
+  letter-spacing: 0.01em;
 }
 
 .newspaperBodyRow,
@@ -181,17 +252,18 @@ select {
 
 .markdownContent code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  background: #eee7db;
+  background: #1d2532;
+  border: 1px solid #3c4758;
   border-radius: 4px;
   padding: 0.05rem 0.22rem;
 }
 
 .markdownContent pre {
   overflow: auto;
-  border: 1px solid var(--border);
+  border: 1px solid #435064;
   border-radius: 8px;
   padding: 0.45rem 0.55rem;
-  background: #f6efe3;
+  background: #1d2634;
 }
 
 .markdownContent pre code {
@@ -203,16 +275,16 @@ select {
   border-left: 3px solid var(--border);
   margin-left: 0;
   padding-left: 0.6rem;
-  color: #454a50;
+  color: #d5deea;
 }
 
 .markdownContent a {
-  color: var(--accent-2);
+  color: #a7c7f0;
 }
 
 .copyButton {
   border: 1px solid var(--border);
-  background: #fff;
+  background: linear-gradient(180deg, #2b3546 0%, #232d3d 100%);
   color: var(--ink);
   border-radius: 8px;
   width: 2rem;
@@ -230,10 +302,15 @@ select {
 .conversationPanel {
   grid-template-rows: auto auto 1fr auto;
   min-height: 72vh;
+  padding: 1rem 1.05rem;
 }
 
 .controlPanel {
-  padding: 0.7rem;
+  padding: 0.85rem;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(56, 70, 90, 0.72) 0%, rgba(38, 50, 68, 0.68) 100%),
+    var(--paper);
 }
 
 .controlStrip {
@@ -269,21 +346,21 @@ select {
 
 .message {
   border: 1px solid var(--border);
-  background: #faf6ef;
+  background: linear-gradient(180deg, #293446 0%, #232f40 100%);
   padding: 0.6rem;
-  border-radius: 8px;
+  border-radius: 12px;
   display: grid;
   gap: 0.4rem;
 }
 
 .message.mine {
-  border-color: var(--accent-2);
-  background: #eef6fb;
+  border-color: #6f94c5;
+  background: linear-gradient(180deg, #30435f 0%, #293a53 100%);
 }
 
 .message.needsAttention {
-  border-color: #af7b1f;
-  background: #fff4db;
+  border-color: #bc9150;
+  background: linear-gradient(180deg, #3c3528 0%, #322c22 100%);
 }
 
 .message footer {
@@ -303,11 +380,19 @@ select {
 
 .threadToggle {
   border: 1px solid var(--border);
-  background: #fff;
+  background: #253042;
   color: var(--ink);
   border-radius: 999px;
   padding: 0.12rem 0.5rem;
   cursor: pointer;
+}
+
+.editToggle {
+  color: var(--muted);
+}
+
+.editToggle:hover {
+  color: var(--ink);
 }
 
 .deleteToggle {
@@ -327,7 +412,7 @@ select {
 
 .reactLauncher {
   border: 1px solid var(--border);
-  background: #fff;
+  background: #253042;
   color: var(--ink);
   border-radius: 999px;
   padding: 0.12rem 0.5rem;
@@ -350,7 +435,7 @@ select {
 
 .reactionPill {
   border: 1px solid var(--border);
-  background: white;
+  background: #273345;
   border-radius: 999px;
   padding: 0.12rem 0.45rem;
   cursor: pointer;
@@ -361,13 +446,13 @@ select {
 }
 
 .reactionPill.gm {
-  border-color: #3f6d93;
-  background: #e8f1fa;
+  border-color: #648bb9;
+  background: #32465f;
 }
 
 .reactionPill.player {
-  border-color: #8f6d3f;
-  background: #f8f1e3;
+  border-color: #89724f;
+  background: #3a352d;
 }
 
 .reactionPill.active {
@@ -384,7 +469,7 @@ select {
   font-weight: 700;
   border-radius: 999px;
   padding: 0.05rem 0.28rem;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .reactionPickerWrap {
@@ -398,17 +483,17 @@ select {
   z-index: 4;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--paper);
+  background: #273244;
   padding: 0.35rem;
   display: grid;
   grid-template-columns: repeat(4, minmax(2rem, 1fr));
   gap: 0.25rem;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.32);
 }
 
 .reactionOption {
   border: 1px solid var(--border);
-  background: #fff;
+  background: #202a39;
   border-radius: 8px;
   padding: 0.22rem 0.32rem;
   cursor: pointer;
@@ -433,7 +518,7 @@ select {
 }
 
 .threadReplies {
-  border-top: 1px dashed var(--border);
+  border-top: 1px dashed #5b687d;
   margin-top: 0.2rem;
   padding-top: 0.6rem;
   display: grid;
@@ -448,20 +533,20 @@ select {
 .replyMessage {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: #242f3f;
   padding: 0.45rem 0.55rem;
   display: grid;
   gap: 0.25rem;
 }
 
 .replyMessage.mine {
-  border-color: var(--accent-2);
-  background: #eef6fb;
+  border-color: #6f94c5;
+  background: #2a3950;
 }
 
 .replyMessage.needsAttention {
-  border-color: #af7b1f;
-  background: #fff6e5;
+  border-color: #bc9150;
+  background: #352f24;
 }
 
 .replyFooter {
@@ -475,10 +560,28 @@ select {
   padding-top: 0.2rem;
 }
 
+.inlineEdit {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.inlineEdit textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 2.5rem;
+}
+
+.inlineEditActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
 .compose,
 .stack {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.58rem;
 }
 
 .stack label {
@@ -508,19 +611,31 @@ button {
   border-radius: 8px;
   border: 1px solid var(--border);
   padding: 0.5rem 0.6rem;
+  background: #1d2735;
+  color: var(--ink);
+}
+
+option {
+  background: #1d2735;
+  color: var(--ink);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
 }
 
 .compose button,
 .stack button {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
+  background: linear-gradient(180deg, #a56659 0%, #87493d 100%);
+  color: #fff;
+  border-color: #9a5c50;
   cursor: pointer;
 }
 
 .authButton {
-  border: 1px solid var(--accent-2);
-  background: var(--accent-2);
+  border: 1px solid #6b90bf;
+  background: linear-gradient(180deg, #6c92c2 0%, #5279a8 100%);
   color: #fff;
   border-radius: 8px;
   padding: 0.5rem 0.7rem;
@@ -530,7 +645,7 @@ button {
 
 .secondaryButton {
   border: 1px solid var(--border);
-  background: #fff;
+  background: #263143;
   color: var(--ink);
   border-radius: 8px;
   padding: 0.35rem 0.6rem;
@@ -539,8 +654,8 @@ button {
 
 .compose button:disabled,
 .stack button:disabled {
-  background: #8e908f;
-  border-color: #8e908f;
+  background: #4a5260;
+  border-color: #4a5260;
   cursor: not-allowed;
 }
 
@@ -555,7 +670,11 @@ button {
   margin-left: auto;
   justify-items: end;
   text-align: right;
-  gap: 0.25rem;
+  gap: 0.22rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(205, 218, 238, 0.2);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(50, 64, 84, 0.8) 0%, rgba(35, 47, 64, 0.8) 100%);
 }
 
 .twoCol {
@@ -571,11 +690,15 @@ button {
 .turnCardStatic {
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fbf8f2;
+  background: #293547;
   color: var(--ink);
   padding: 0.55rem;
   display: grid;
   gap: 0.15rem;
+}
+
+.turnCardStatic strong {
+  font-size: 1rem;
 }
 
 .turnCardStatic small {
@@ -587,9 +710,9 @@ button {
   align-items: center;
   justify-content: center;
   text-decoration: none;
-  background: var(--accent-2);
+  background: linear-gradient(180deg, #6c92c2 0%, #5279a8 100%);
   color: #fff;
-  border: 1px solid var(--accent-2);
+  border: 1px solid #6b90bf;
   border-radius: 8px;
   padding: 0.5rem 0.7rem;
   font-weight: 600;
@@ -599,6 +722,10 @@ button {
   grid-template-columns: 1fr auto;
 }
 
+.aiCompose {
+  margin-top: 0.62rem;
+}
+
 .aiPanel summary {
   cursor: pointer;
   font-weight: 700;
@@ -606,13 +733,52 @@ button {
 
 .aiMessage {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 0.5rem;
-  background: #f7f0e5;
+  background: #2b3648;
 }
 
 .aiMessage.assistant {
-  background: #ecf7ea;
+  background: #2d3d37;
+  border-color: #4f7865;
+}
+
+.aiMessage.pending {
+  border-style: dashed;
+}
+
+.thinkingLine {
+  margin: 0;
+}
+
+.thinkingDots {
+  display: inline-flex;
+  margin-left: 0.15rem;
+  gap: 0.08rem;
+}
+
+.thinkingDots span {
+  animation: thinkingDotPulse 1.1s infinite;
+  opacity: 0.25;
+}
+
+.thinkingDots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.thinkingDots span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes thinkingDotPulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 0.95;
+  }
 }
 
 @media (max-width: 1100px) {

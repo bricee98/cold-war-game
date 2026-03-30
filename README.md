@@ -81,3 +81,21 @@ npm run dev:poll
 - Create a Firestore Database in Firebase Console before first app run.
 - `firestore.rules` is a starter draft; validate and refine with the Firebase emulator before production.
 - Add `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` / `OPENAI_SUMMARY_MODEL` / `OPENAI_REASONING_EFFORT` / `OPENAI_MAX_OUTPUT_TOKENS` / `OPENAI_MAX_CONTINUATIONS`) to `.env.local` for live AI replies and turn summaries.
+
+## Cloud Run build-time Firebase config
+
+This app reads Firebase client config from `NEXT_PUBLIC_FIREBASE_*` variables. In Next.js, those values are embedded into the browser bundle at build time.
+
+For Cloud Build + Cloud Run:
+
+- `Dockerfile` accepts Firebase `NEXT_PUBLIC_*` values as `ARG` in the builder stage.
+- `cloudbuild.yaml` passes those values via `docker build --build-arg ...`.
+- Configure the following trigger substitutions in Cloud Build:
+  - `_NEXT_PUBLIC_FIREBASE_API_KEY`
+  - `_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+  - `_NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+  - `_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
+  - `_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
+  - `_NEXT_PUBLIC_FIREBASE_APP_ID`
+
+After updating substitutions, run a new build so Next.js rebakes the client bundle with the correct Firebase values.

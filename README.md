@@ -99,3 +99,5 @@ For Cloud Build + Cloud Run:
   - `_NEXT_PUBLIC_FIREBASE_APP_ID`
 
 After updating substitutions, run a new build so Next.js rebakes the client bundle with the correct Firebase values.
+
+The app also serves `/runtime-config.js` and uses it as a client-side fallback for `NEXT_PUBLIC_*` values. This helps when runtime env vars are present but build-time substitutions were missed.

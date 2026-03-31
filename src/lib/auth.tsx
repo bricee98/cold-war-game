@@ -10,6 +10,7 @@ import {
 } from "firebase/auth";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { getFirebase } from "@/lib/firebase";
+import { getPublicEnv } from "@/lib/runtimeEnv";
 
 type AuthStatus = "loading" | "unauthenticated" | "authenticated" | "unconfigured" | "error";
 
@@ -43,15 +44,15 @@ function resolveMappedUserId(user: FirebaseUser | null): string | null {
     return null;
   }
 
-  const gmEmails = parseSet(process.env.NEXT_PUBLIC_GM_EMAILS);
-  const usaEmails = parseSet(process.env.NEXT_PUBLIC_USA_EMAILS);
-  const ussrEmails = parseSet(process.env.NEXT_PUBLIC_USSR_EMAILS);
-  const finlandEmails = parseSet(process.env.NEXT_PUBLIC_FINLAND_EMAILS);
+  const gmEmails = parseSet(getPublicEnv("NEXT_PUBLIC_GM_EMAILS"));
+  const usaEmails = parseSet(getPublicEnv("NEXT_PUBLIC_USA_EMAILS"));
+  const ussrEmails = parseSet(getPublicEnv("NEXT_PUBLIC_USSR_EMAILS"));
+  const finlandEmails = parseSet(getPublicEnv("NEXT_PUBLIC_FINLAND_EMAILS"));
 
-  const gmUids = parseSet(process.env.NEXT_PUBLIC_GM_UIDS);
-  const usaUids = parseSet(process.env.NEXT_PUBLIC_USA_UIDS);
-  const ussrUids = parseSet(process.env.NEXT_PUBLIC_USSR_UIDS);
-  const finlandUids = parseSet(process.env.NEXT_PUBLIC_FINLAND_UIDS);
+  const gmUids = parseSet(getPublicEnv("NEXT_PUBLIC_GM_UIDS"));
+  const usaUids = parseSet(getPublicEnv("NEXT_PUBLIC_USA_UIDS"));
+  const ussrUids = parseSet(getPublicEnv("NEXT_PUBLIC_USSR_UIDS"));
+  const finlandUids = parseSet(getPublicEnv("NEXT_PUBLIC_FINLAND_UIDS"));
 
   const uid = user.uid.toLowerCase();
   const email = (user.email ?? "").toLowerCase();

@@ -170,8 +170,14 @@ select {
 }
 
 .turnList {
-  align-content: stretch;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  align-content: normal;
   gap: 0.9rem;
+}
+
+.turnItems {
+  min-height: 0;
+  align-content: start;
 }
 
 .turnList h2 {

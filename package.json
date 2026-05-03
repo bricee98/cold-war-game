@@ -1,6 +1,6 @@
 {
   "name": "cold-war-game",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "version:patch": "npm version patch --no-git-tag-version"
   },
   "dependencies": {
     "firebase": "^11.5.0",

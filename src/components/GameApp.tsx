@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import packageInfo from "../../package.json";
 import { CopyButton } from "@/components/CopyButton";
 import { MarkdownText } from "@/components/MarkdownText";
 import { useAuth } from "@/lib/auth";
@@ -19,6 +20,8 @@ const REACTION_OPTIONS = [
   { emoji: "☭", label: "USSR" },
   { emoji: "🇫🇮", label: "Finland" }
 ] as const;
+
+const APP_VERSION = packageInfo.version;
 
 interface ReactionBucket {
   emoji: string;
@@ -246,6 +249,7 @@ function TurnList({
           Open Newspaper Desk
         </Link>
       ) : null}
+      <p className="versionBadge">v{APP_VERSION}</p>
     </aside>
   );
 }

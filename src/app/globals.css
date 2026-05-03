@@ -170,7 +170,7 @@ select {
 }
 
 .turnList {
-  align-content: start;
+  align-content: stretch;
   gap: 0.9rem;
 }
 
@@ -186,6 +186,16 @@ select {
   margin-top: 0.35rem;
   width: 100%;
   justify-content: center;
+}
+
+.versionBadge {
+  align-self: end;
+  justify-self: center;
+  margin-top: auto;
+  color: rgba(238, 242, 248, 0.56);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .muted {

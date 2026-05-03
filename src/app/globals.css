@@ -305,6 +305,46 @@ select {
   padding: 1rem 1.05rem;
 }
 
+.messageFeedWrap {
+  position: relative;
+  min-height: 0;
+}
+
+.messageFeedWrap .messages {
+  max-height: 100%;
+}
+
+.offscreenToast {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  pointer-events: auto;
+  border: 1px solid #6f84a3;
+  background: rgba(23, 32, 45, 0.92);
+  color: #eaf0f8;
+  border-radius: 999px;
+  padding: 0.24rem 0.64rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(5, 8, 12, 0.45);
+  backdrop-filter: blur(3px);
+  cursor: pointer;
+}
+
+.offscreenToast:hover {
+  border-color: #86a4cc;
+  background: rgba(30, 41, 58, 0.95);
+}
+
+.offscreenToast.top {
+  top: 0.28rem;
+}
+
+.offscreenToast.bottom {
+  bottom: 0.28rem;
+}
+
 .controlPanel {
   padding: 0.85rem;
   border-radius: 14px;
@@ -322,6 +362,14 @@ select {
 
 .controlStrip.single {
   grid-template-columns: minmax(240px, 420px);
+}
+
+.controlStrip.single select.hasUnread {
+  border-color: #b99561;
+  box-shadow: 0 0 0 1px rgba(185, 149, 97, 0.35);
+  background:
+    radial-gradient(circle at 92% -30%, rgba(191, 152, 90, 0.2), transparent 52%),
+    #1f2a39;
 }
 
 .controlStrip label {

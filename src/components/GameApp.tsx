@@ -101,6 +101,45 @@ interface AIPageContext {
   }>;
 }
 
+function countUnreadInChannel(messages: Message[], currentUserId: string): number {
+  const repliesByParent = new Map<string, Message[]>();
+  for (const message of messages) {
+    if (!message.parentMessageId) {
+      continue;
+    }
+    const bucket = repliesByParent.get(message.parentMessageId) ?? [];
+    bucket.push(message);
+    repliesByParent.set(message.parentMessageId, bucket);
+  }
+
+  let unreadCount = 0;
+  const topLevel = messages.filter((message) => !message.parentMessageId);
+
+  for (const message of topLevel) {
+    const replies = (repliesByParent.get(message.id) ?? []).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const reactedByCurrentUser = message.reactions.some((reaction) => reaction.userId === currentUserId);
+    const repliedByCurrentUser = replies.some((reply) => reply.authorId === currentUserId);
+    const messageNeedsAttention = message.authorId !== currentUserId && !reactedByCurrentUser && !repliedByCurrentUser;
+    if (messageNeedsAttention) {
+      unreadCount += 1;
+    }
+
+    for (const reply of replies) {
+      const replyReactedByCurrentUser = reply.reactions.some((reaction) => reaction.userId === currentUserId);
+      const repliedAfterThisReply = replies.some(
+        (entry) => entry.authorId === currentUserId && entry.createdAt > reply.createdAt
+      );
+      const replyNeedsAttention =
+        reply.authorId !== currentUserId && !replyReactedByCurrentUser && !repliedAfterThisReply;
+      if (replyNeedsAttention) {
+        unreadCount += 1;
+      }
+    }
+  }
+
+  return unreadCount;
+}
+
 function buildReactionBuckets(
   message: Message,
   currentUserId: string,
@@ -215,18 +254,23 @@ function ChannelControl({
   channels,
   selectedChannelId,
   onSelectChannel,
-  isReadOnlyTurn
+  isReadOnlyTurn,
+  unreadByChannel
 }: {
   channels: Thread[];
   selectedChannelId: string | null;
   onSelectChannel: (channelId: string) => void;
   isReadOnlyTurn: boolean;
+  unreadByChannel: Map<string, number>;
 }) {
+  const hasUnread = Array.from(unreadByChannel.values()).some((count) => count > 0);
+
   return (
     <section className="panel controlPanel">
       <div className="controlStrip single">
         <select
           aria-label="Channel picker"
+          className={hasUnread ? "hasUnread" : ""}
           value={selectedChannelId ?? ""}
           onChange={(event) => onSelectChannel(event.target.value)}
           disabled={!channels.length}
@@ -234,6 +278,7 @@ function ChannelControl({
           {channels.map((channel) => (
             <option key={channel.id} value={channel.id}>
               {channel.title}
+              {(unreadByChannel.get(channel.id) ?? 0) > 0 ? ` (${unreadByChannel.get(channel.id)})` : ""}
             </option>
           ))}
         </select>
@@ -270,6 +315,7 @@ function MessageCard({
   const [replyDraft, setReplyDraft] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const seenReplyIdsRef = useRef(new Set(replies.map((reply) => reply.id)));
 
   const reactionBuckets = useMemo(
     () => buildReactionBuckets(message, currentUserId, roleByUserId),
@@ -286,6 +332,19 @@ function MessageCard({
     setReplyDraft("");
     setShowThread(true);
   };
+
+  useEffect(() => {
+    const seenReplyIds = seenReplyIdsRef.current;
+    const hasNewReply = replies.some((reply) => !seenReplyIds.has(reply.id));
+    if (hasNewReply) {
+      setShowThread(true);
+    }
+
+    seenReplyIds.clear();
+    for (const reply of replies) {
+      seenReplyIds.add(reply.id);
+    }
+  }, [replies]);
 
   const reactedByCurrentUser = message.reactions.some((reaction) => reaction.userId === currentUserId);
   const repliedByCurrentUser = replies.some((reply) => reply.authorId === currentUserId);
@@ -636,6 +695,9 @@ function MessageFeed({
   onReply: (parentMessageId: string, body: string) => void;
   onDelete: (messageId: string) => void;
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [offscreenNeedsAttention, setOffscreenNeedsAttention] = useState({ above: 0, below: 0 });
+
   const topLevel = useMemo(() => messages.filter((message) => !message.parentMessageId), [messages]);
 
   const repliesByParent = useMemo(() => {
@@ -651,23 +713,127 @@ function MessageFeed({
     return map;
   }, [messages]);
 
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    let frame = 0;
+    const recalc = () => {
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+      frame = window.requestAnimationFrame(() => {
+        const bounds = container.getBoundingClientRect();
+        const highlightNodes = container.querySelectorAll<HTMLElement>(".message.needsAttention, .replyMessage.needsAttention");
+        let above = 0;
+        let below = 0;
+        highlightNodes.forEach((node) => {
+          const rect = node.getBoundingClientRect();
+          if (rect.bottom < bounds.top) {
+            above += 1;
+          } else if (rect.top > bounds.bottom) {
+            below += 1;
+          }
+        });
+        setOffscreenNeedsAttention((prev) =>
+          prev.above === above && prev.below === below ? prev : { above, below }
+        );
+      });
+    };
+
+    recalc();
+    container.addEventListener("scroll", recalc, { passive: true });
+    window.addEventListener("resize", recalc);
+
+    return () => {
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+      container.removeEventListener("scroll", recalc);
+      window.removeEventListener("resize", recalc);
+    };
+  }, [messages]);
+
+  const scrollToNearestNeedsAttention = (direction: "above" | "below") => {
+    const container = scrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    const bounds = container.getBoundingClientRect();
+    const highlightNodes = Array.from(
+      container.querySelectorAll<HTMLElement>(".message.needsAttention, .replyMessage.needsAttention")
+    );
+
+    let target: HTMLElement | null = null;
+    if (direction === "above") {
+      let bestBottom = Number.NEGATIVE_INFINITY;
+      for (const node of highlightNodes) {
+        const rect = node.getBoundingClientRect();
+        if (rect.bottom < bounds.top && rect.bottom > bestBottom) {
+          bestBottom = rect.bottom;
+          target = node;
+        }
+      }
+    } else {
+      let bestTop = Number.POSITIVE_INFINITY;
+      for (const node of highlightNodes) {
+        const rect = node.getBoundingClientRect();
+        if (rect.top > bounds.bottom && rect.top < bestTop) {
+          bestTop = rect.top;
+          target = node;
+        }
+      }
+    }
+
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
   return (
-    <div className="messages">
-      {topLevel.map((message) => (
-        <MessageCard
-          key={message.id}
-          message={message}
-          replies={repliesByParent.get(message.id) ?? []}
-          isReadOnly={isReadOnly}
-          currentUserId={currentUserId}
-          roleByUserId={roleByUserId}
-          onEdit={onEdit}
-          onReact={onReact}
-          onReply={onReply}
-          onDelete={onDelete}
-        />
-      ))}
-      {!topLevel.length ? <p className="muted">No messages yet in this channel.</p> : null}
+    <div className="messageFeedWrap">
+      {offscreenNeedsAttention.above > 0 ? (
+        <button
+          type="button"
+          className="offscreenToast top"
+          onClick={() => scrollToNearestNeedsAttention("above")}
+          aria-label={`Jump to ${offscreenNeedsAttention.above} new messages above`}
+        >
+          ↑ {offscreenNeedsAttention.above} new message{offscreenNeedsAttention.above === 1 ? "" : "s"}
+        </button>
+      ) : null}
+
+      <div className="messages" ref={scrollRef}>
+        {topLevel.map((message) => (
+          <MessageCard
+            key={message.id}
+            message={message}
+            replies={repliesByParent.get(message.id) ?? []}
+            isReadOnly={isReadOnly}
+            currentUserId={currentUserId}
+            roleByUserId={roleByUserId}
+            onEdit={onEdit}
+            onReact={onReact}
+            onReply={onReply}
+            onDelete={onDelete}
+          />
+        ))}
+        {!topLevel.length ? <p className="muted">No messages yet in this channel.</p> : null}
+      </div>
+
+      {offscreenNeedsAttention.below > 0 ? (
+        <button
+          type="button"
+          className="offscreenToast bottom"
+          onClick={() => scrollToNearestNeedsAttention("below")}
+          aria-label={`Jump to ${offscreenNeedsAttention.below} new messages below`}
+        >
+          {offscreenNeedsAttention.below} new message{offscreenNeedsAttention.below === 1 ? "" : "s"} ↓
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -841,6 +1007,15 @@ export function GameApp() {
     () => (activeChannelId ? getMessagesForThread(activeChannelId) : []),
     [activeChannelId, getMessagesForThread]
   );
+  const unreadByChannel = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const channel of channels) {
+      const channelMessages = getMessagesForThread(channel.id);
+      map.set(channel.id, countUnreadInChannel(channelMessages, currentUser.id));
+    }
+    return map;
+  }, [channels, currentUser.id, getMessagesForThread]);
+
   const isReadOnlyTurn = turn?.status !== "active";
   const roleByUserId = useMemo(() => new Map(state.users.map((user) => [user.id, user.role])), [state.users]);
   const userById = useMemo(() => new Map(state.users.map((entry) => [entry.id, entry])), [state.users]);
@@ -1045,6 +1220,7 @@ export function GameApp() {
                   selectedChannelId={activeChannelId}
                   onSelectChannel={setSelectedChannelId}
                   isReadOnlyTurn={isReadOnlyTurn}
+                  unreadByChannel={unreadByChannel}
                 />
 
                 <MessageFeed

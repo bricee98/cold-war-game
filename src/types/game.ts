@@ -32,7 +32,6 @@ export interface Thread {
   participantIds: string[];
   title: string;
   createdAt: string;
-  whatPlayerWouldntKnow?: string;
 }
 
 export interface Reaction {
@@ -48,6 +47,7 @@ export interface Message {
   body: string;
   createdAt: string;
   editedAt?: string;
+  whatPlayerWouldntKnow?: string;
   reactions: Reaction[];
 }
 

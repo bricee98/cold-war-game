@@ -75,7 +75,7 @@ interface StoreContextValue {
   addAIMessage: (userId: string, role: "user" | "assistant", body: string) => void;
   publishTurn: (input: PublishTurnInput) => void;
   updateTurnGmNote: (turnId: string, body: string) => { ok: true } | { ok: false; reason: string };
-  updateThreadGmNote: (threadId: string, body: string) => { ok: true } | { ok: false; reason: string };
+  updateMessageGmNote: (messageId: string, body: string) => { ok: true } | { ok: false; reason: string };
   generateLatestArchivedTurnSummaries: () => Promise<{ ok: true; reason?: string } | { ok: false; reason: string }>;
   getThreadsForUser: (userId: string, turnId: string) => Thread[];
   getMessagesForThread: (threadId: string) => Message[];
@@ -98,6 +98,10 @@ function asIsoString(value: unknown): string {
   }
 
   return new Date().toISOString();
+}
+
+function isNewspaperBody(body: string): boolean {
+  return /^NEWSPAPER\s*-/i.test(body.trim());
 }
 
 function refs(db: Firestore) {
@@ -205,8 +209,7 @@ function mapThreadFromDoc(threadId: string, data: Record<string, unknown>): Thre
     kind: data.kind === "player_player" ? "player_player" : "gm_player",
     participantIds,
     title: typeof data.title === "string" ? data.title : "Untitled Channel",
-    createdAt: asIsoString(data.createdAt),
-    whatPlayerWouldntKnow: typeof data.whatPlayerWouldntKnow === "string" ? data.whatPlayerWouldntKnow : ""
+    createdAt: asIsoString(data.createdAt)
   };
 }
 
@@ -244,6 +247,7 @@ function mapMessageFromDoc(messageId: string, data: Record<string, unknown>): Me
     body: typeof data.body === "string" ? data.body : "",
     createdAt: asIsoString(data.createdAt),
     editedAt,
+    whatPlayerWouldntKnow: typeof data.whatPlayerWouldntKnow === "string" ? data.whatPlayerWouldntKnow : "",
     reactions: mapReactions(data.reactions)
   };
 }
@@ -916,18 +920,22 @@ export function GameStoreProvider({
     return { ok: true };
   };
 
-  const updateThreadGmNote = (threadId: string, body: string): { ok: true } | { ok: false; reason: string } => {
+  const updateMessageGmNote = (messageId: string, body: string): { ok: true } | { ok: false; reason: string } => {
     if (currentUser.role !== "gm") {
-      return { ok: false, reason: "Only GM can edit hidden thread notes." };
+      return { ok: false, reason: "Only GM can edit hidden memo notes." };
     }
 
-    const thread = state.threads.find((entry) => entry.id === threadId);
-    if (!thread) {
-      return { ok: false, reason: "Thread not found." };
+    const message = state.messages.find((entry) => entry.id === messageId);
+    if (!message) {
+      return { ok: false, reason: "Message not found." };
+    }
+
+    if (message.authorId !== currentUser.id || isNewspaperBody(message.body)) {
+      return { ok: false, reason: "Hidden player-knowledge notes can only be attached to GM memos." };
     }
 
     const nextBody = body.trim();
-    if ((thread.whatPlayerWouldntKnow ?? "").trim() === nextBody) {
+    if ((message.whatPlayerWouldntKnow ?? "").trim() === nextBody) {
       return { ok: true };
     }
 
@@ -938,9 +946,9 @@ export function GameStoreProvider({
       return { ok: false, reason: "Firestore unavailable." };
     }
 
-    const { threadsCol } = refs(db);
-    void setDoc(doc(threadsCol, threadId), { whatPlayerWouldntKnow: nextBody }, { merge: true }).catch((error) => {
-      console.error("Failed to update hidden thread note", error);
+    const { messagesCol } = refs(db);
+    void setDoc(doc(messagesCol, messageId), { whatPlayerWouldntKnow: nextBody }, { merge: true }).catch((error) => {
+      console.error("Failed to update hidden memo note", error);
     });
 
     return { ok: true };
@@ -1077,7 +1085,7 @@ export function GameStoreProvider({
     addAIMessage,
     publishTurn,
     updateTurnGmNote,
-    updateThreadGmNote,
+    updateMessageGmNote,
     generateLatestArchivedTurnSummaries,
     getThreadsForUser,
     getMessagesForThread,

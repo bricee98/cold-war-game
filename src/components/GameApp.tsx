@@ -104,20 +104,6 @@ interface AIPageContext {
   }>;
 }
 
-interface CopySelection {
-  newspaper: boolean;
-  thread: boolean;
-  responses: boolean;
-  memos: boolean;
-}
-
-const EMPTY_COPY_SELECTION: CopySelection = {
-  newspaper: false,
-  thread: false,
-  responses: false,
-  memos: false
-};
-
 function countUnreadInChannel(messages: Message[], currentUserId: string): number {
   const repliesByParent = new Map<string, Message[]>();
   for (const message of messages) {
@@ -209,17 +195,27 @@ function isNewspaperMessage(message: Message): boolean {
   return /^NEWSPAPER\s*-/i.test(message.body.trim());
 }
 
+function isMemoMessage(message: Message, currentUserId: string): boolean {
+  return message.authorId === currentUserId && !isNewspaperMessage(message);
+}
+
 function getAuthorLabel(message: Message, userById: Map<string, User>): string {
   return userById.get(message.authorId)?.displayName ?? message.authorId;
 }
 
 function formatCopyMessage(message: Message, userById: Map<string, User>): string {
   const replyPrefix = message.parentMessageId ? "Reply" : "Message";
-  return [
+  const parts = [
     `### ${replyPrefix} from ${getAuthorLabel(message, userById)}`,
     "",
     message.body.trim()
-  ].join("\n");
+  ];
+
+  if (message.whatPlayerWouldntKnow?.trim()) {
+    parts.push("", "#### What This Player Wouldn't Know", "", message.whatPlayerWouldntKnow.trim());
+  }
+
+  return parts.join("\n");
 }
 
 function formatCopySection(title: string, messages: Message[], userById: Map<string, User>): string {
@@ -230,60 +226,53 @@ function formatCopySection(title: string, messages: Message[], userById: Map<str
   return [`## ${title}`, "", messages.map((message) => formatCopyMessage(message, userById)).join("\n\n")].join("\n");
 }
 
-function buildSelectedMarkdownCopy({
-  selection,
-  messages,
+function buildMassMarkdownCopy({
+  selectedThreadIds,
+  channels,
+  messagesByThreadId,
   turn,
-  channel,
   currentUserId,
   roleByUserId,
   userById
 }: {
-  selection: CopySelection;
-  messages: Message[];
+  selectedThreadIds: Set<string>;
+  channels: Thread[];
+  messagesByThreadId: Map<string, Message[]>;
   turn: Turn;
-  channel: Thread;
   currentUserId: string;
   roleByUserId: Map<string, Role>;
   userById: Map<string, User>;
 }): string {
-  const sortedMessages = messages.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const newspaperMessages = sortedMessages.filter(isNewspaperMessage);
-  const threadMessages = sortedMessages.filter((message) => !isNewspaperMessage(message));
-  const memoMessages = threadMessages.filter((message) => message.authorId === currentUserId);
-  const responseMessages = threadMessages.filter((message) => roleByUserId.get(message.authorId) === "player");
+  const selectedChannels = channels.filter((channel) => selectedThreadIds.has(channel.id));
+  const sections = [`# Turn ${turn.number} - ${formatInWorldDate(turn.inWorldDate)}`];
 
-  const sections = [
-    `# Turn ${turn.number} - ${formatInWorldDate(turn.inWorldDate)}`,
-    "",
-    `# ${channel.title}`
-  ];
-
-  if (selection.newspaper) {
-    const section = formatCopySection("Newspaper", newspaperMessages, userById);
-    if (section) {
-      sections.push("", section);
-    }
+  if (turn.whatPublicWouldntKnow?.trim()) {
+    sections.push("", "## What The Public Wouldn't Know", "", turn.whatPublicWouldntKnow.trim());
   }
 
-  if (selection.thread) {
-    const section = formatCopySection("Thread", threadMessages, userById);
-    if (section) {
-      sections.push("", section);
-    }
-  }
+  for (const channel of selectedChannels) {
+    const sortedMessages = (messagesByThreadId.get(channel.id) ?? [])
+      .slice()
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const newspaperMessages = sortedMessages.filter(isNewspaperMessage);
+    const memoMessages = sortedMessages.filter((message) => isMemoMessage(message, currentUserId));
+    const responseMessages = sortedMessages.filter((message) => roleByUserId.get(message.authorId) === "player");
 
-  if (!selection.thread && selection.memos) {
-    const section = formatCopySection("Memos", memoMessages, userById);
-    if (section) {
-      sections.push("", section);
-    }
-  }
+    sections.push("", `# ${channel.title}`);
 
-  if (!selection.thread && selection.responses) {
-    const section = formatCopySection("Responses", responseMessages, userById);
-    if (section) {
-      sections.push("", section);
+    const newspaperSection = formatCopySection("Newspaper", newspaperMessages, userById);
+    if (newspaperSection) {
+      sections.push("", newspaperSection);
+    }
+
+    const memoSection = formatCopySection("Memos", memoMessages, userById);
+    if (memoSection) {
+      sections.push("", memoSection);
+    }
+
+    const responseSection = formatCopySection("Responses", responseMessages, userById);
+    if (responseSection) {
+      sections.push("", responseSection);
     }
   }
 
@@ -393,39 +382,40 @@ function ChannelControl({
 
 function GmThreadTools({
   turn,
+  channels,
   channel,
-  messages,
+  messagesByThreadId,
   currentUserId,
   roleByUserId,
   userById,
-  onUpdateTurnNote,
-  onUpdateThreadNote
+  onUpdateTurnNote
 }: {
   turn: Turn;
+  channels: Thread[];
   channel: Thread;
-  messages: Message[];
+  messagesByThreadId: Map<string, Message[]>;
   currentUserId: string;
   roleByUserId: Map<string, Role>;
   userById: Map<string, User>;
   onUpdateTurnNote: (turnId: string, body: string) => { ok: true } | { ok: false; reason: string };
-  onUpdateThreadNote: (threadId: string, body: string) => { ok: true } | { ok: false; reason: string };
 }) {
   const [turnNoteDraft, setTurnNoteDraft] = useState(turn.whatPublicWouldntKnow ?? "");
-  const [threadNoteDraft, setThreadNoteDraft] = useState(channel.whatPlayerWouldntKnow ?? "");
-  const [selection, setSelection] = useState<CopySelection>({
-    newspaper: true,
-    thread: true,
-    responses: false,
-    memos: false
-  });
+  const [selectedThreadIds, setSelectedThreadIds] = useState(() => new Set(channels.map((entry) => entry.id)));
 
   useEffect(() => {
     setTurnNoteDraft(turn.whatPublicWouldntKnow ?? "");
   }, [turn.id, turn.whatPublicWouldntKnow]);
 
   useEffect(() => {
-    setThreadNoteDraft(channel.whatPlayerWouldntKnow ?? "");
-  }, [channel.id, channel.whatPlayerWouldntKnow]);
+    setSelectedThreadIds((prev) => {
+      const validIds = new Set(channels.map((entry) => entry.id));
+      const next = new Set(Array.from(prev).filter((id) => validIds.has(id)));
+      if (!next.size && channel) {
+        next.add(channel.id);
+      }
+      return next;
+    });
+  }, [channel, channels]);
 
   const saveTurnNote = () => {
     const result = onUpdateTurnNote(turn.id, turnNoteDraft);
@@ -434,41 +424,55 @@ function GmThreadTools({
     }
   };
 
-  const saveThreadNote = () => {
-    const result = onUpdateThreadNote(channel.id, threadNoteDraft);
-    if (!result.ok) {
-      window.alert(result.reason);
-    }
-  };
-
-  const setField = (field: keyof CopySelection, value: boolean) => {
-    setSelection((prev) => {
-      const next = { ...prev, [field]: value };
-      if (field === "thread" && value) {
-        next.responses = false;
-        next.memos = false;
-      }
-      if ((field === "responses" || field === "memos") && value) {
-        next.thread = false;
+  const setThreadSelected = (threadId: string, selected: boolean) => {
+    setSelectedThreadIds((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(threadId);
+      } else {
+        next.delete(threadId);
       }
       return next;
     });
   };
 
   const selectAll = () => {
-    setSelection({
-      newspaper: true,
-      thread: true,
-      responses: false,
-      memos: false
-    });
+    setSelectedThreadIds(new Set(channels.map((entry) => entry.id)));
   };
 
-  const copyText = buildSelectedMarkdownCopy({
-    selection,
-    messages,
+  const selectCurrentThread = () => {
+    setSelectedThreadIds(new Set([channel.id]));
+  };
+
+  const selectThreadsWithResponses = () => {
+    setSelectedThreadIds(
+      new Set(
+        channels
+          .filter((entry) =>
+            (messagesByThreadId.get(entry.id) ?? []).some((message) => roleByUserId.get(message.authorId) === "player")
+          )
+          .map((entry) => entry.id)
+      )
+    );
+  };
+
+  const selectThreadsWithMemos = () => {
+    setSelectedThreadIds(
+      new Set(
+        channels
+          .filter((entry) =>
+            (messagesByThreadId.get(entry.id) ?? []).some((message) => isMemoMessage(message, currentUserId))
+          )
+          .map((entry) => entry.id)
+      )
+    );
+  };
+
+  const copyText = buildMassMarkdownCopy({
+    selectedThreadIds,
+    channels,
+    messagesByThreadId,
     turn,
-    channel,
     currentUserId,
     roleByUserId,
     userById
@@ -490,74 +494,38 @@ function GmThreadTools({
             Save
           </button>
         </label>
-
-        <label className="gmNoteBox">
-          WHAT THIS PLAYER WOULDN&apos;T KNOW
-          <textarea
-            value={threadNoteDraft}
-            onChange={(event) => setThreadNoteDraft(event.target.value)}
-            onBlur={saveThreadNote}
-            rows={3}
-            placeholder="GM-only thread context"
-          />
-          <button type="button" className="secondaryButton" onClick={saveThreadNote}>
-            Save
-          </button>
-        </label>
       </div>
 
       <div className="gmCopyPanel">
         <div>
-          <strong>Copy Markdown</strong>
-          <p className="muted">GM export for the selected channel.</p>
+          <strong>Mass Copy Markdown</strong>
+          <p className="muted">Choose which threads to include.</p>
         </div>
-        <div className="copyCheckboxes">
-          <label>
-            <input
-              type="checkbox"
-              checked={selection.newspaper && selection.thread}
-              onChange={(event) => {
-                if (event.target.checked) {
-                  selectAll();
-                  return;
-                }
-                setSelection(EMPTY_COPY_SELECTION);
-              }}
-            />
+        <div className="copyPresetButtons">
+          <button type="button" className="threadToggle" onClick={selectAll}>
             Select all
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={selection.newspaper}
-              onChange={(event) => setField("newspaper", event.target.checked)}
-            />
-            Newspaper
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={selection.thread}
-              onChange={(event) => setField("thread", event.target.checked)}
-            />
-            Thread
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={selection.responses}
-              onChange={(event) => setField("responses", event.target.checked)}
-            />
-            Responses
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={selection.memos}
-              onChange={(event) => setField("memos", event.target.checked)}
-            />
-            Memos
-          </label>
+          </button>
+          <button type="button" className="threadToggle" onClick={selectCurrentThread}>
+            Select thread
+          </button>
+          <button type="button" className="threadToggle" onClick={selectThreadsWithResponses}>
+            Select responses
+          </button>
+          <button type="button" className="threadToggle" onClick={selectThreadsWithMemos}>
+            Select memos
+          </button>
+        </div>
+        <div className="copyCheckboxes threadCheckboxes">
+          {channels.map((entry) => (
+            <label key={entry.id}>
+              <input
+                type="checkbox"
+                checked={selectedThreadIds.has(entry.id)}
+                onChange={(event) => setThreadSelected(entry.id, event.target.checked)}
+              />
+              {entry.title}
+            </label>
+          ))}
         </div>
         <CopyButton text={copyText} ariaLabel="Copy selected markdown" className="secondaryButton copyMarkdownButton" />
       </div>
@@ -565,26 +533,67 @@ function GmThreadTools({
   );
 }
 
+function MemoHiddenNoteEditor({
+  message,
+  onUpdateMessageGmNote
+}: {
+  message: Message;
+  onUpdateMessageGmNote: (messageId: string, body: string) => { ok: true } | { ok: false; reason: string };
+}) {
+  const [draft, setDraft] = useState(message.whatPlayerWouldntKnow ?? "");
+
+  useEffect(() => {
+    setDraft(message.whatPlayerWouldntKnow ?? "");
+  }, [message.id, message.whatPlayerWouldntKnow]);
+
+  const save = () => {
+    const result = onUpdateMessageGmNote(message.id, draft);
+    if (!result.ok) {
+      window.alert(result.reason);
+    }
+  };
+
+  return (
+    <label className="memoHiddenNote">
+      WHAT THIS PLAYER WOULDN&apos;T KNOW
+      <textarea
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={save}
+        rows={2}
+        placeholder="GM-only note for this memo"
+      />
+      <button type="button" className="secondaryButton" onClick={save}>
+        Save
+      </button>
+    </label>
+  );
+}
+
 function MessageCard({
   message,
   replies,
   isReadOnly,
+  isGmViewer,
   currentUserId,
   roleByUserId,
   onEdit,
   onReact,
   onReply,
-  onDelete
+  onDelete,
+  onUpdateMessageGmNote
 }: {
   message: Message;
   replies: Message[];
   isReadOnly: boolean;
+  isGmViewer: boolean;
   currentUserId: string;
   roleByUserId: Map<string, Role>;
   onEdit: (messageId: string, body: string) => void;
   onReact: (messageId: string, emoji: string) => void;
   onReply: (parentMessageId: string, body: string) => void;
   onDelete: (messageId: string) => void;
+  onUpdateMessageGmNote: (messageId: string, body: string) => { ok: true } | { ok: false; reason: string };
 }) {
   const [showThread, setShowThread] = useState(replies.length > 0);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
@@ -719,6 +728,9 @@ function MessageCard({
           </>
         )}
       </div>
+      {isGmViewer && isMemoMessage(message, currentUserId) ? (
+        <MemoHiddenNoteEditor message={message} onUpdateMessageGmNote={onUpdateMessageGmNote} />
+      ) : null}
       <footer>
         <small>{getTimestampLabel(message)}</small>
         <div className="messageActions">
@@ -846,6 +858,9 @@ function MessageCard({
                           </>
                         )}
                       </div>
+                      {isGmViewer && isMemoMessage(reply, currentUserId) ? (
+                        <MemoHiddenNoteEditor message={reply} onUpdateMessageGmNote={onUpdateMessageGmNote} />
+                      ) : null}
                       <footer className="replyFooter">
                         <small>{getTimestampLabel(reply)}</small>
                         <div className="messageActions">
@@ -956,21 +971,25 @@ function MessageCard({
 function MessageFeed({
   messages,
   isReadOnly,
+  isGmViewer,
   currentUserId,
   roleByUserId,
   onEdit,
   onReact,
   onReply,
-  onDelete
+  onDelete,
+  onUpdateMessageGmNote
 }: {
   messages: Message[];
   isReadOnly: boolean;
+  isGmViewer: boolean;
   currentUserId: string;
   roleByUserId: Map<string, Role>;
   onEdit: (messageId: string, body: string) => void;
   onReact: (messageId: string, emoji: string) => void;
   onReply: (parentMessageId: string, body: string) => void;
   onDelete: (messageId: string) => void;
+  onUpdateMessageGmNote: (messageId: string, body: string) => { ok: true } | { ok: false; reason: string };
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [offscreenNeedsAttention, setOffscreenNeedsAttention] = useState({ above: 0, below: 0 });
@@ -1090,12 +1109,14 @@ function MessageFeed({
             message={message}
             replies={repliesByParent.get(message.id) ?? []}
             isReadOnly={isReadOnly}
+            isGmViewer={isGmViewer}
             currentUserId={currentUserId}
             roleByUserId={roleByUserId}
             onEdit={onEdit}
             onReact={onReact}
             onReply={onReply}
             onDelete={onDelete}
+            onUpdateMessageGmNote={onUpdateMessageGmNote}
           />
         ))}
         {!topLevel.length ? <p className="muted">No messages yet in this channel.</p> : null}
@@ -1249,7 +1270,7 @@ export function GameApp() {
     addReaction,
     deleteMessage,
     updateTurnGmNote,
-    updateThreadGmNote,
+    updateMessageGmNote,
     getThreadsForUser,
     getMessagesForThread,
     getTurnById
@@ -1286,6 +1307,13 @@ export function GameApp() {
     () => (activeChannelId ? getMessagesForThread(activeChannelId) : []),
     [activeChannelId, getMessagesForThread]
   );
+  const messagesByThreadId = useMemo(() => {
+    const map = new Map<string, Message[]>();
+    for (const channel of channels) {
+      map.set(channel.id, getMessagesForThread(channel.id));
+    }
+    return map;
+  }, [channels, getMessagesForThread]);
   const activeChannel = useMemo(
     () => channels.find((entry) => entry.id === activeChannelId) ?? null,
     [activeChannelId, channels]
@@ -1508,24 +1536,26 @@ export function GameApp() {
                 {currentUser.role === "gm" && activeChannel ? (
                   <GmThreadTools
                     turn={turn}
+                    channels={channels}
                     channel={activeChannel}
-                    messages={messages}
+                    messagesByThreadId={messagesByThreadId}
                     currentUserId={currentUser.id}
                     roleByUserId={roleByUserId}
                     userById={userById}
                     onUpdateTurnNote={updateTurnGmNote}
-                    onUpdateThreadNote={updateThreadGmNote}
                   />
                 ) : null}
 
                 <MessageFeed
                   messages={messages}
                   isReadOnly={isReadOnlyTurn}
+                  isGmViewer={currentUser.role === "gm"}
                   roleByUserId={roleByUserId}
                   onEdit={editOwnMessage}
                   onReact={(messageId, emoji) => addReaction(messageId, currentUser.id, emoji)}
                   onReply={replyInThread}
                   onDelete={deleteOwnMessage}
+                  onUpdateMessageGmNote={updateMessageGmNote}
                   currentUserId={currentUser.id}
                 />
 

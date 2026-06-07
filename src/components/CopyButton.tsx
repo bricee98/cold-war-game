@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
 type CopyState = "idle" | "copied" | "failed";
 
@@ -40,7 +40,19 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
   return copied;
 }
 
-export function CopyButton({ text, ariaLabel, className }: { text: string; ariaLabel: string; className?: string }) {
+export function CopyButton({
+  text,
+  ariaLabel,
+  className,
+  disabled = false,
+  children
+}: {
+  text: string;
+  ariaLabel: string;
+  className?: string;
+  disabled?: boolean;
+  children?: ReactNode;
+}) {
   const [state, setState] = useState<CopyState>("idle");
 
   useEffect(() => {
@@ -52,11 +64,15 @@ export function CopyButton({ text, ariaLabel, className }: { text: string; ariaL
   }, [state]);
 
   const onClick = async () => {
+    if (disabled || !text.trim()) {
+      return;
+    }
     const copied = await copyTextToClipboard(text);
     setState(copied ? "copied" : "failed");
   };
 
   const glyph = state === "idle" ? "⧉" : state === "copied" ? "✓" : "!";
+  const isDisabled = disabled || !text.trim();
 
   return (
     <button
@@ -65,7 +81,9 @@ export function CopyButton({ text, ariaLabel, className }: { text: string; ariaL
       aria-label={ariaLabel}
       title={ariaLabel}
       onClick={onClick}
+      disabled={isDisabled}
     >
+      {children ? <span>{children}</span> : null}
       <span aria-hidden>{glyph}</span>
     </button>
   );

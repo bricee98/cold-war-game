@@ -465,7 +465,7 @@ select {
 
 .gmCopyPanel {
   display: grid;
-  grid-template-columns: minmax(10rem, auto) 1fr auto;
+  grid-template-columns: minmax(10rem, auto) 1fr;
   gap: 0.6rem;
   align-items: start;
   border-top: 1px solid rgba(208, 217, 230, 0.16);
@@ -507,6 +507,13 @@ select {
   padding-top: 0.25rem;
 }
 
+.copyActionGrid {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
 .memoHiddenNote {
   border: 1px solid rgba(184, 153, 96, 0.3);
   border-radius: 8px;
@@ -540,6 +547,42 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.messageSelectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.replySelectionBar {
+  justify-content: flex-start;
+}
+
+.selectionCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  white-space: nowrap;
+}
+
+.selectionCheck input {
+  width: auto;
+  margin: 0;
+}
+
+.copyThreadButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  padding: 0.12rem 0.5rem;
 }
 
 .inlineForm {
@@ -598,6 +641,13 @@ select {
   border-radius: 999px;
   padding: 0.12rem 0.5rem;
   cursor: pointer;
+}
+
+.threadToggle:disabled,
+.secondaryButton:disabled,
+.copyButton:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
 }
 
 .editToggle {

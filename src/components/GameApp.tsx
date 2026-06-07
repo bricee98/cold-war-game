@@ -205,15 +205,13 @@ function getAuthorLabel(message: Message, userById: Map<string, User>): string {
 
 function formatCopyMessage(message: Message, userById: Map<string, User>): string {
   const replyPrefix = message.parentMessageId ? "Reply" : "Message";
-  const parts = [
-    `### ${replyPrefix} from ${getAuthorLabel(message, userById)}`,
-    "",
-    message.body.trim()
-  ];
+  const parts = [`### ${replyPrefix} from ${getAuthorLabel(message, userById)}`];
 
   if (message.whatPlayerWouldntKnow?.trim()) {
     parts.push("", "#### What This Player Wouldn't Know", "", message.whatPlayerWouldntKnow.trim());
   }
+
+  parts.push("", message.body.trim());
 
   return parts.join("\n");
 }
@@ -702,6 +700,9 @@ function MessageCard({
         messageNeedsAttention ? " needsAttention" : ""
       }`}
     >
+      {isGmViewer && isMemoMessage(message, currentUserId) ? (
+        <MemoHiddenNoteEditor message={message} onUpdateMessageGmNote={onUpdateMessageGmNote} />
+      ) : null}
       <div className="messageBodyRow">
         {editingMessageId === message.id ? (
           <div className="inlineEdit">
@@ -728,9 +729,6 @@ function MessageCard({
           </>
         )}
       </div>
-      {isGmViewer && isMemoMessage(message, currentUserId) ? (
-        <MemoHiddenNoteEditor message={message} onUpdateMessageGmNote={onUpdateMessageGmNote} />
-      ) : null}
       <footer>
         <small>{getTimestampLabel(message)}</small>
         <div className="messageActions">
@@ -832,6 +830,9 @@ function MessageCard({
                         replyNeedsAttention ? " needsAttention" : ""
                       }`}
                     >
+                      {isGmViewer && isMemoMessage(reply, currentUserId) ? (
+                        <MemoHiddenNoteEditor message={reply} onUpdateMessageGmNote={onUpdateMessageGmNote} />
+                      ) : null}
                       <div className="replyBodyRow">
                         {editingMessageId === reply.id ? (
                           <div className="inlineEdit">
@@ -858,9 +859,6 @@ function MessageCard({
                           </>
                         )}
                       </div>
-                      {isGmViewer && isMemoMessage(reply, currentUserId) ? (
-                        <MemoHiddenNoteEditor message={reply} onUpdateMessageGmNote={onUpdateMessageGmNote} />
-                      ) : null}
                       <footer className="replyFooter">
                         <small>{getTimestampLabel(reply)}</small>
                         <div className="messageActions">

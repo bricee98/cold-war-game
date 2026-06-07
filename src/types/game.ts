@@ -19,6 +19,7 @@ export interface Turn {
   inWorldDate: string;
   publishedAt: string;
   status: "active" | "archived";
+  whatPublicWouldntKnow?: string;
 }
 
 export type ThreadKind = "gm_player" | "player_player";
@@ -31,6 +32,7 @@ export interface Thread {
   participantIds: string[];
   title: string;
   createdAt: string;
+  whatPlayerWouldntKnow?: string;
 }
 
 export interface Reaction {

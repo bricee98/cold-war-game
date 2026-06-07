@@ -8,7 +8,7 @@ import { MarkdownText } from "@/components/MarkdownText";
 import { useAuth } from "@/lib/auth";
 import { formatInWorldDate, formatIsoDateTime, formatShortInWorldDate } from "@/lib/format";
 import { useGameStore } from "@/lib/gameStore";
-import { Message, Role, Thread, Turn } from "@/types/game";
+import { Message, Role, Thread, Turn, User } from "@/types/game";
 
 const REACTION_OPTIONS = [
   { emoji: "👍", label: "Thumbs Up" },
@@ -104,6 +104,20 @@ interface AIPageContext {
   }>;
 }
 
+interface CopySelection {
+  newspaper: boolean;
+  thread: boolean;
+  responses: boolean;
+  memos: boolean;
+}
+
+const EMPTY_COPY_SELECTION: CopySelection = {
+  newspaper: false,
+  thread: false,
+  responses: false,
+  memos: false
+};
+
 function countUnreadInChannel(messages: Message[], currentUserId: string): number {
   const repliesByParent = new Map<string, Message[]>();
   for (const message of messages) {
@@ -189,6 +203,91 @@ function compactForAI(value: string, maxLength = 560): string {
     return normalized;
   }
   return `${normalized.slice(0, maxLength)}...`;
+}
+
+function isNewspaperMessage(message: Message): boolean {
+  return /^NEWSPAPER\s*-/i.test(message.body.trim());
+}
+
+function getAuthorLabel(message: Message, userById: Map<string, User>): string {
+  return userById.get(message.authorId)?.displayName ?? message.authorId;
+}
+
+function formatCopyMessage(message: Message, userById: Map<string, User>): string {
+  const replyPrefix = message.parentMessageId ? "Reply" : "Message";
+  return [
+    `### ${replyPrefix} from ${getAuthorLabel(message, userById)}`,
+    "",
+    message.body.trim()
+  ].join("\n");
+}
+
+function formatCopySection(title: string, messages: Message[], userById: Map<string, User>): string {
+  if (!messages.length) {
+    return "";
+  }
+
+  return [`## ${title}`, "", messages.map((message) => formatCopyMessage(message, userById)).join("\n\n")].join("\n");
+}
+
+function buildSelectedMarkdownCopy({
+  selection,
+  messages,
+  turn,
+  channel,
+  currentUserId,
+  roleByUserId,
+  userById
+}: {
+  selection: CopySelection;
+  messages: Message[];
+  turn: Turn;
+  channel: Thread;
+  currentUserId: string;
+  roleByUserId: Map<string, Role>;
+  userById: Map<string, User>;
+}): string {
+  const sortedMessages = messages.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const newspaperMessages = sortedMessages.filter(isNewspaperMessage);
+  const threadMessages = sortedMessages.filter((message) => !isNewspaperMessage(message));
+  const memoMessages = threadMessages.filter((message) => message.authorId === currentUserId);
+  const responseMessages = threadMessages.filter((message) => roleByUserId.get(message.authorId) === "player");
+
+  const sections = [
+    `# Turn ${turn.number} - ${formatInWorldDate(turn.inWorldDate)}`,
+    "",
+    `# ${channel.title}`
+  ];
+
+  if (selection.newspaper) {
+    const section = formatCopySection("Newspaper", newspaperMessages, userById);
+    if (section) {
+      sections.push("", section);
+    }
+  }
+
+  if (selection.thread) {
+    const section = formatCopySection("Thread", threadMessages, userById);
+    if (section) {
+      sections.push("", section);
+    }
+  }
+
+  if (!selection.thread && selection.memos) {
+    const section = formatCopySection("Memos", memoMessages, userById);
+    if (section) {
+      sections.push("", section);
+    }
+  }
+
+  if (!selection.thread && selection.responses) {
+    const section = formatCopySection("Responses", responseMessages, userById);
+    if (section) {
+      sections.push("", section);
+    }
+  }
+
+  return sections.join("\n").trim();
 }
 
 function TrashGlyph() {
@@ -288,6 +387,180 @@ function ChannelControl({
         </select>
       </div>
       {isReadOnlyTurn ? <p className="muted">Past turns are read-only.</p> : null}
+    </section>
+  );
+}
+
+function GmThreadTools({
+  turn,
+  channel,
+  messages,
+  currentUserId,
+  roleByUserId,
+  userById,
+  onUpdateTurnNote,
+  onUpdateThreadNote
+}: {
+  turn: Turn;
+  channel: Thread;
+  messages: Message[];
+  currentUserId: string;
+  roleByUserId: Map<string, Role>;
+  userById: Map<string, User>;
+  onUpdateTurnNote: (turnId: string, body: string) => { ok: true } | { ok: false; reason: string };
+  onUpdateThreadNote: (threadId: string, body: string) => { ok: true } | { ok: false; reason: string };
+}) {
+  const [turnNoteDraft, setTurnNoteDraft] = useState(turn.whatPublicWouldntKnow ?? "");
+  const [threadNoteDraft, setThreadNoteDraft] = useState(channel.whatPlayerWouldntKnow ?? "");
+  const [selection, setSelection] = useState<CopySelection>({
+    newspaper: true,
+    thread: true,
+    responses: false,
+    memos: false
+  });
+
+  useEffect(() => {
+    setTurnNoteDraft(turn.whatPublicWouldntKnow ?? "");
+  }, [turn.id, turn.whatPublicWouldntKnow]);
+
+  useEffect(() => {
+    setThreadNoteDraft(channel.whatPlayerWouldntKnow ?? "");
+  }, [channel.id, channel.whatPlayerWouldntKnow]);
+
+  const saveTurnNote = () => {
+    const result = onUpdateTurnNote(turn.id, turnNoteDraft);
+    if (!result.ok) {
+      window.alert(result.reason);
+    }
+  };
+
+  const saveThreadNote = () => {
+    const result = onUpdateThreadNote(channel.id, threadNoteDraft);
+    if (!result.ok) {
+      window.alert(result.reason);
+    }
+  };
+
+  const setField = (field: keyof CopySelection, value: boolean) => {
+    setSelection((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === "thread" && value) {
+        next.responses = false;
+        next.memos = false;
+      }
+      if ((field === "responses" || field === "memos") && value) {
+        next.thread = false;
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelection({
+      newspaper: true,
+      thread: true,
+      responses: false,
+      memos: false
+    });
+  };
+
+  const copyText = buildSelectedMarkdownCopy({
+    selection,
+    messages,
+    turn,
+    channel,
+    currentUserId,
+    roleByUserId,
+    userById
+  });
+
+  return (
+    <section className="gmThreadTools">
+      <div className="gmNoteGrid">
+        <label className="gmNoteBox">
+          WHAT THE PUBLIC WOULDN&apos;T KNOW
+          <textarea
+            value={turnNoteDraft}
+            onChange={(event) => setTurnNoteDraft(event.target.value)}
+            onBlur={saveTurnNote}
+            rows={3}
+            placeholder="GM-only public context"
+          />
+          <button type="button" className="secondaryButton" onClick={saveTurnNote}>
+            Save
+          </button>
+        </label>
+
+        <label className="gmNoteBox">
+          WHAT THIS PLAYER WOULDN&apos;T KNOW
+          <textarea
+            value={threadNoteDraft}
+            onChange={(event) => setThreadNoteDraft(event.target.value)}
+            onBlur={saveThreadNote}
+            rows={3}
+            placeholder="GM-only thread context"
+          />
+          <button type="button" className="secondaryButton" onClick={saveThreadNote}>
+            Save
+          </button>
+        </label>
+      </div>
+
+      <div className="gmCopyPanel">
+        <div>
+          <strong>Copy Markdown</strong>
+          <p className="muted">GM export for the selected channel.</p>
+        </div>
+        <div className="copyCheckboxes">
+          <label>
+            <input
+              type="checkbox"
+              checked={selection.newspaper && selection.thread}
+              onChange={(event) => {
+                if (event.target.checked) {
+                  selectAll();
+                  return;
+                }
+                setSelection(EMPTY_COPY_SELECTION);
+              }}
+            />
+            Select all
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={selection.newspaper}
+              onChange={(event) => setField("newspaper", event.target.checked)}
+            />
+            Newspaper
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={selection.thread}
+              onChange={(event) => setField("thread", event.target.checked)}
+            />
+            Thread
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={selection.responses}
+              onChange={(event) => setField("responses", event.target.checked)}
+            />
+            Responses
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={selection.memos}
+              onChange={(event) => setField("memos", event.target.checked)}
+            />
+            Memos
+          </label>
+        </div>
+        <CopyButton text={copyText} ariaLabel="Copy selected markdown" className="secondaryButton copyMarkdownButton" />
+      </div>
     </section>
   );
 }
@@ -975,6 +1248,8 @@ export function GameApp() {
     editMessage,
     addReaction,
     deleteMessage,
+    updateTurnGmNote,
+    updateThreadGmNote,
     getThreadsForUser,
     getMessagesForThread,
     getTurnById
@@ -1010,6 +1285,10 @@ export function GameApp() {
   const messages = useMemo(
     () => (activeChannelId ? getMessagesForThread(activeChannelId) : []),
     [activeChannelId, getMessagesForThread]
+  );
+  const activeChannel = useMemo(
+    () => channels.find((entry) => entry.id === activeChannelId) ?? null,
+    [activeChannelId, channels]
   );
   const unreadByChannel = useMemo(() => {
     const map = new Map<string, number>();
@@ -1050,8 +1329,7 @@ export function GameApp() {
           inWorldDate: entry.inWorldDate,
           status: entry.status
         })),
-      selectedChannel:
-        channels.find((entry) => entry.id === activeChannelId) ?? (channels.length ? channels[0] : null),
+      selectedChannel: activeChannel ?? (channels.length ? channels[0] : null),
       visibleChannels: channels.map((entry) => ({
         id: entry.id,
         title: entry.title,
@@ -1118,7 +1396,7 @@ export function GameApp() {
         }))
     }),
     [
-      activeChannelId,
+      activeChannel,
       channelById,
       channelIdSet,
       channels,
@@ -1226,6 +1504,19 @@ export function GameApp() {
                   isReadOnlyTurn={isReadOnlyTurn}
                   unreadByChannel={unreadByChannel}
                 />
+
+                {currentUser.role === "gm" && activeChannel ? (
+                  <GmThreadTools
+                    turn={turn}
+                    channel={activeChannel}
+                    messages={messages}
+                    currentUserId={currentUser.id}
+                    roleByUserId={roleByUserId}
+                    userById={userById}
+                    onUpdateTurnNote={updateTurnGmNote}
+                    onUpdateThreadNote={updateThreadGmNote}
+                  />
+                ) : null}
 
                 <MessageFeed
                   messages={messages}

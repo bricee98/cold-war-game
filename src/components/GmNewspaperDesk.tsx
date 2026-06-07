@@ -12,6 +12,7 @@ export function GmNewspaperDesk() {
   const currentTurn = useCurrentTurn();
 
   const [inWorldDate, setInWorldDate] = useState(currentTurn?.inWorldDate ?? "");
+  const [whatPublicWouldntKnow, setWhatPublicWouldntKnow] = useState(currentTurn?.whatPublicWouldntKnow ?? "");
   const [body, setBody] = useState("");
   const [isGeneratingSummaries, setIsGeneratingSummaries] = useState(false);
   const [summaryStatus, setSummaryStatus] = useState<string | null>(null);
@@ -19,6 +20,7 @@ export function GmNewspaperDesk() {
   useEffect(() => {
     if (currentTurn) {
       setInWorldDate(currentTurn.inWorldDate);
+      setWhatPublicWouldntKnow(currentTurn.whatPublicWouldntKnow ?? "");
     }
   }, [currentTurn]);
 
@@ -41,10 +43,12 @@ export function GmNewspaperDesk() {
 
     publishTurn({
       inWorldDate,
-      body: body.trim()
+      body: body.trim(),
+      whatPublicWouldntKnow: whatPublicWouldntKnow.trim()
     });
 
     setBody("");
+    setWhatPublicWouldntKnow("");
   };
 
   const onGenerateLastTurnSummaries = async () => {
@@ -88,6 +92,15 @@ export function GmNewspaperDesk() {
             <label>
               In-world date
               <input type="date" value={inWorldDate} onChange={(event) => setInWorldDate(event.target.value)} />
+            </label>
+            <label>
+              WHAT THE PUBLIC WOULDN&apos;T KNOW
+              <textarea
+                value={whatPublicWouldntKnow}
+                onChange={(event) => setWhatPublicWouldntKnow(event.target.value)}
+                rows={4}
+                placeholder="GM-only context for this newspaper"
+              />
             </label>
             <label>
               Body

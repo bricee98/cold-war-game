@@ -31,6 +31,7 @@ import {
 interface PublishTurnInput {
   inWorldDate: string;
   body: string;
+  whatPublicWouldntKnow?: string;
 }
 
 interface TurnSummaryContextThread {
@@ -73,6 +74,8 @@ interface StoreContextValue {
   deleteMessage: (messageId: string, userId: string) => { ok: true } | { ok: false; reason: string };
   addAIMessage: (userId: string, role: "user" | "assistant", body: string) => void;
   publishTurn: (input: PublishTurnInput) => void;
+  updateTurnGmNote: (turnId: string, body: string) => { ok: true } | { ok: false; reason: string };
+  updateThreadGmNote: (threadId: string, body: string) => { ok: true } | { ok: false; reason: string };
   generateLatestArchivedTurnSummaries: () => Promise<{ ok: true; reason?: string } | { ok: false; reason: string }>;
   getThreadsForUser: (userId: string, turnId: string) => Thread[];
   getMessagesForThread: (threadId: string) => Message[];
@@ -186,7 +189,8 @@ function mapTurnFromDoc(turnId: string, data: Record<string, unknown>): Turn {
     number: typeof data.number === "number" ? data.number : 0,
     inWorldDate: typeof data.inWorldDate === "string" ? data.inWorldDate : "",
     publishedAt: asIsoString(data.publishedAt),
-    status: data.status === "archived" ? "archived" : "active"
+    status: data.status === "archived" ? "archived" : "active",
+    whatPublicWouldntKnow: typeof data.whatPublicWouldntKnow === "string" ? data.whatPublicWouldntKnow : ""
   };
 }
 
@@ -201,7 +205,8 @@ function mapThreadFromDoc(threadId: string, data: Record<string, unknown>): Thre
     kind: data.kind === "player_player" ? "player_player" : "gm_player",
     participantIds,
     title: typeof data.title === "string" ? data.title : "Untitled Channel",
-    createdAt: asIsoString(data.createdAt)
+    createdAt: asIsoString(data.createdAt),
+    whatPlayerWouldntKnow: typeof data.whatPlayerWouldntKnow === "string" ? data.whatPlayerWouldntKnow : ""
   };
 }
 
@@ -881,7 +886,67 @@ export function GameStoreProvider({
     return { ok: true, reason: "Summaries generated for all players." };
   };
 
-  const publishTurn = ({ inWorldDate, body }: PublishTurnInput) => {
+  const updateTurnGmNote = (turnId: string, body: string): { ok: true } | { ok: false; reason: string } => {
+    if (currentUser.role !== "gm") {
+      return { ok: false, reason: "Only GM can edit hidden turn notes." };
+    }
+
+    const turn = state.turns.find((entry) => entry.id === turnId);
+    if (!turn) {
+      return { ok: false, reason: "Turn not found." };
+    }
+
+    const nextBody = body.trim();
+    if ((turn.whatPublicWouldntKnow ?? "").trim() === nextBody) {
+      return { ok: true };
+    }
+
+    let db: Firestore;
+    try {
+      db = getFirebase().db;
+    } catch {
+      return { ok: false, reason: "Firestore unavailable." };
+    }
+
+    const { turnsCol } = refs(db);
+    void setDoc(doc(turnsCol, turnId), { whatPublicWouldntKnow: nextBody }, { merge: true }).catch((error) => {
+      console.error("Failed to update hidden turn note", error);
+    });
+
+    return { ok: true };
+  };
+
+  const updateThreadGmNote = (threadId: string, body: string): { ok: true } | { ok: false; reason: string } => {
+    if (currentUser.role !== "gm") {
+      return { ok: false, reason: "Only GM can edit hidden thread notes." };
+    }
+
+    const thread = state.threads.find((entry) => entry.id === threadId);
+    if (!thread) {
+      return { ok: false, reason: "Thread not found." };
+    }
+
+    const nextBody = body.trim();
+    if ((thread.whatPlayerWouldntKnow ?? "").trim() === nextBody) {
+      return { ok: true };
+    }
+
+    let db: Firestore;
+    try {
+      db = getFirebase().db;
+    } catch {
+      return { ok: false, reason: "Firestore unavailable." };
+    }
+
+    const { threadsCol } = refs(db);
+    void setDoc(doc(threadsCol, threadId), { whatPlayerWouldntKnow: nextBody }, { merge: true }).catch((error) => {
+      console.error("Failed to update hidden thread note", error);
+    });
+
+    return { ok: true };
+  };
+
+  const publishTurn = ({ inWorldDate, body, whatPublicWouldntKnow }: PublishTurnInput) => {
     const activeTurn = state.turns.find((turn) => turn.status === "active");
     const gmId = state.users.find((user) => user.role === "gm")?.id;
 
@@ -956,7 +1021,8 @@ export function GameStoreProvider({
       number: newTurnNumber,
       inWorldDate,
       publishedAt: nowIso,
-      status: "active"
+      status: "active",
+      whatPublicWouldntKnow: whatPublicWouldntKnow?.trim() ?? ""
     });
 
     for (const thread of [...newGMThreads, ...pairThreads]) {
@@ -1010,6 +1076,8 @@ export function GameStoreProvider({
     deleteMessage,
     addAIMessage,
     publishTurn,
+    updateTurnGmNote,
+    updateThreadGmNote,
     generateLatestArchivedTurnSummaries,
     getThreadsForUser,
     getMessagesForThread,

@@ -239,10 +239,12 @@ select {
 
 .messageBodyText {
   flex: 1;
+  min-width: 0;
 }
 
 .replyBodyText {
   flex: 1;
+  min-width: 0;
 }
 
 .markdownContent > :first-child {
@@ -257,7 +259,8 @@ select {
 .markdownContent ul,
 .markdownContent ol,
 .markdownContent blockquote,
-.markdownContent pre {
+.markdownContent pre,
+.markdownTableWrap {
   margin: 0 0 0.5rem;
 }
 
@@ -296,6 +299,35 @@ select {
 
 .markdownContent a {
   color: #a7c7f0;
+}
+
+.markdownTableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdownContent table {
+  width: 100%;
+  min-width: 24rem;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.markdownContent th,
+.markdownContent td {
+  border: 1px solid #4a586d;
+  padding: 0.35rem 0.48rem;
+  vertical-align: top;
+}
+
+.markdownContent th {
+  background: #334055;
+  color: #f0f4fa;
+  font-weight: 700;
+}
+
+.markdownContent td {
+  background: rgba(18, 25, 35, 0.24);
 }
 
 .copyButton {
